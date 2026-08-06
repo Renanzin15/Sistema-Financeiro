@@ -1,0 +1,26 @@
+# === NUNCA subir: dados reais + hash da senha ===
+financeiro.db
+*.db
+*.sqlite
+*.sqlite3
+
+# === Segredos / variáveis de ambiente ===
+.env
+.env.*
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# === Sistema operacional / editores ===
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# === Backups locais grandes (opcional — descomente se não quiser versionar) ===
+# backups/

@@ -1,0 +1,11 @@
+# Dependências do back-end (instale com: pip install -r requirements.txt)
+fastapi
+uvicorn[standard]
+bcrypt
+python-jose[cryptography]
+pydantic
+
+# --- Opcional (só se for usar o leitor de conta por imagem / OCR) ---
+# pytesseract
+# Pillow
+# (o OCR também exige o programa Tesseract instalado à parte — ver estudo_ocr_conta_imagem.md)

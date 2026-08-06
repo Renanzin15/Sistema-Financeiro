@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meu Orçamento</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --fundo: #0e0b1a;
+    --painel: #17132a;
+    --painel2: #1e1936;
+    --borda: #2a2444;
+    --texto: #e8e5f2;
+    --texto2: #9a93b8;
+    --roxo: #8b5cf6;
+    --roxo-claro: #a78bfa;
+    --roxo-fundo: rgba(139,92,246,0.14);
+    --verde: #34d399;
+    --verde-fundo: rgba(52,211,153,0.14);
+    --vermelho: #f87171;
+    --vermelho-fundo: rgba(248,113,113,0.14);
+    --amarelo: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--fundo);
+    color: var(--texto);
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* menu lateral */
+  .lateral {
+    width: 210px; background: var(--painel); border-right: 1px solid var(--borda);
+    padding: 24px 14px; display: flex; flex-direction: column; gap: 6px;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .marca { font-size: 16px; font-weight: 700; letter-spacing: 0.14em; color: var(--roxo-claro);
+    padding: 0 10px 22px; text-transform: uppercase; }
+  .item-menu {
+    display: flex; align-items: center; gap: 11px; padding: 11px 12px; border: none;
+    background: none; font-family: inherit; font-size: 14px; color: var(--texto2);
+    border-radius: 10px; cursor: pointer; width: 100%; text-align: left; transition: all 0.15s;
+  }
+  .item-menu:hover { background: var(--painel2); color: var(--texto); }
+  .item-menu.ativa { background: var(--roxo-fundo); color: var(--roxo-claro); font-weight: 600; }
+  .item-menu .ico { font-size: 17px; width: 20px; text-align: center; }
+
+  /* área principal */
+  .principal { flex: 1; padding: 26px 30px 60px; max-width: 100%; overflow-x: hidden; }
+  .topo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .topo h1 { font-size: 20px; font-weight: 600; }
+  .topo .data { font-size: 13px; color: var(--texto2); }
+
+  /* cards de resumo no topo */
+  .cards-topo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .card-topo {
+    background: var(--painel); border: 1px solid var(--borda); border-radius: 16px; padding: 20px;
+    position: relative; overflow: hidden;
+  }
+  .card-topo::before {
+    content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+    background: var(--roxo); opacity: 0.6;
+  }
+  .card-topo .rot { font-size: 13px; color: var(--texto2); margin-bottom: 8px; }
+  .card-topo .num { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .card-topo .num.verde { color: var(--verde); }
+  .card-topo .num.vermelho { color: var(--vermelho); }
+  .card-topo .num.roxo { color: var(--roxo-claro); }
+  .card-topo .peq { font-size: 12px; color: var(--texto2); margin-top: 4px; }
+
+  /* grid de painéis */
+  .paineis { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 1000px) { .paineis { grid-template-columns: 1fr; } .cards-topo { grid-template-columns: repeat(2,1fr); } .lateral { width: 64px; } .marca, .item-menu span { display:none; } }
+
+  .painel {
+    background: var(--painel); border: 1px solid var(--borda); border-radius: 16px;
+    padding: 20px; margin-bottom: 20px;
+  }
+  .painel h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+
+  .tela { display: none; }
+  .tela.ativa { display: block; }
+
+  /* itens de lista */
+  .item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 0; border-bottom: 1px solid var(--borda);
+  }
+  .item:last-child { border-bottom: none; }
+  .item .nome { font-weight: 500; font-size: 14px; }
+  .item .sub { font-size: 12px; color: var(--texto2); margin-top: 2px; }
+  .valor { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 15px; }
+  .valor.mais { color: var(--verde); }
+  .valor.menos { color: var(--vermelho); }
+  .valor.roxo { color: var(--roxo-claro); }
+
+  /* histórico (F2): cabeçalho de dia + ícone circular colorido por tipo */
+  .grupo-dia {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--texto2); font-weight: 600; margin: 20px 0 4px;
+  }
+  .grupo-dia:first-child { margin-top: 0; }
+  .ico-circ {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 50%; font-size: 16px; flex-shrink: 0;
+  }
+
+  /* formulários */
+  .forma { margin-bottom: 4px; }
+  .forma h3 { font-size: 14px; margin-bottom: 12px; font-weight: 600; }
+  .campo { margin-bottom: 11px; }
+  .campo label { display: block; font-size: 12px; color: var(--texto2); margin-bottom: 5px; }
+  .campo input, .campo select {
+    width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px;
+    border: 1px solid var(--borda); border-radius: 9px; background: var(--fundo); color: var(--texto);
+  }
+  .campo input:focus, .campo select:focus { outline: none; border-color: var(--roxo); }
+  .campo-duplo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  button.acao {
+    font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    border: none; border-radius: 9px; padding: 10px 16px;
+    background: var(--roxo); color: #fff; transition: opacity 0.15s;
+  }
+  button.acao:hover { opacity: 0.88; }
+  button.acao.pequeno { padding: 7px 13px; font-size: 13px; }
+  button.perigo {
+    background: none; color: var(--texto2); padding: 6px 11px; font-size: 12px;
+    border: 1px solid var(--borda); border-radius: 8px; cursor: pointer; font-family: inherit;
+  }
+  button.perigo:hover { color: var(--vermelho); border-color: var(--vermelho); }
+
+  .vazio { text-align: center; color: var(--texto2); font-size: 14px; padding: 20px 0; }
+  .aviso {
+    display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    font-size: 14px; padding: 12px 18px; border-radius: 10px; z-index: 100;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  }
+  .aviso.erro { background: var(--vermelho-fundo); color: var(--vermelho); border: 1px solid var(--vermelho); display: block; }
+  .aviso.ok { background: var(--verde-fundo); color: var(--verde); border: 1px solid var(--verde); display: block; }
+
+  .tag { font-size: 11px; padding: 3px 8px; border-radius: 6px; background: var(--roxo-fundo); color: var(--roxo-claro); }
+
+  /* tabela de contas (dívidas) */
+  .tabela-cabecalho {
+    display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 1.4fr; gap: 12px;
+    padding: 0 4px 10px; font-size: 12px; color: var(--texto2);
+    text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--borda);
+  }
+  .linha-conta {
+    display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 1.4fr; gap: 12px;
+    align-items: center; padding: 14px 4px; border-bottom: 1px solid var(--borda);
+  }
+  .linha-conta:last-child { border-bottom: none; }
+  .linha-conta.paga { opacity: 0.55; }
+  .linha-conta .col-venc { font-size: 13px; color: var(--texto2); font-variant-numeric: tabular-nums; }
+  .status-tag { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+  @media (max-width: 720px) {
+    .tabela-cabecalho { display: none; }
+    .linha-conta { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .linha-conta .col-venc { grid-column: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div id="tela-login" style="position:fixed;inset:0;background:var(--fundo);z-index:1000;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:20px">
+  <div style="background:var(--painel);border:1px solid var(--borda);border-radius:16px;padding:32px;width:100%;max-width:360px">
+    <div style="font-size:18px;font-weight:700;letter-spacing:0.1em;color:var(--roxo-claro);text-transform:uppercase;text-align:center;margin-bottom:6px">Orçamento</div>
+    <div id="login-subtitulo" style="font-size:13px;color:var(--texto2);text-align:center;margin-bottom:22px"></div>
+    <div class="campo"><label id="login-label">Senha</label><input id="login-senha" type="password" placeholder="senha" onkeydown="if(event.key==='Enter')enviarLogin()"></div>
+    <div id="login-confirma-campo" class="campo" style="display:none"><label>Confirme a senha</label><input id="login-confirma" type="password" placeholder="repita a senha" onkeydown="if(event.key==='Enter')enviarLogin()"></div>
+    <button class="acao" style="width:100%;margin-top:6px" onclick="enviarLogin()" id="login-botao">Entrar</button>
+    <div id="login-erro" style="font-size:13px;color:var(--vermelho);text-align:center;margin-top:12px;min-height:18px"></div>
+  </div>
+</div>
+
+<nav class="lateral">
+  <div class="marca">Orçamento</div>
+  <button class="item-menu ativa" data-tela="dashboard"><span class="ico">◈</span><span>Visão geral</span></button>
+  <button class="item-menu" data-tela="caixinhas"><span class="ico">▣</span><span>Caixinhas</span></button>
+  <button class="item-menu" data-tela="contas"><span class="ico">◎</span><span>Dívidas</span></button>
+  <button class="item-menu" data-tela="historico"><span class="ico">≡</span><span>Histórico</span></button>
+  <button class="item-menu" onclick="sair()" style="margin-top:auto"><span class="ico">⏻</span><span>Sair</span></button>
+</nav>
+
+<main class="principal">
+  <div class="topo">
+    <div>
+      <h1 id="titulo-tela">Visão geral</h1>
+      <div class="data" id="data-hoje"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <label style="font-size:13px;color:var(--texto2)">Banco:</label>
+      <select id="seletor-banco" onchange="trocarBanco()"
+        style="font-family:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--borda);border-radius:9px;background:var(--painel);color:var(--texto);min-width:150px"></select>
+    </div>
+  </div>
+
+  <!-- cards de resumo (sempre visíveis) -->
+  <div class="cards-topo">
+    <div class="card-topo">
+      <div class="rot">Saldo livre</div>
+      <div class="num roxo" id="ct-saldo-livre">—</div>
+      <div class="peq" id="ct-estado-livre"></div>
+    </div>
+    <div class="card-topo">
+      <div class="rot">Entradas do mês</div>
+      <div class="num verde" id="ct-entradas">—</div>
+    </div>
+    <div class="card-topo">
+      <div class="rot">Guardado em caixinhas</div>
+      <div class="num" id="ct-alocado">—</div>
+    </div>
+    <div class="card-topo">
+      <div class="rot">Contas a pagar</div>
+      <div class="num vermelho" id="ct-contas">—</div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <section class="tela ativa" id="dashboard">
+    <div class="paineis">
+      <div>
+        <div class="painel">
+          <h2>Registrar entrada</h2>
+          <div class="forma">
+            <div class="campo-duplo">
+              <div class="campo"><label>Descrição</label><input id="e-desc" placeholder="Salário"></div>
+              <div class="campo"><label>Valor (R$)</label><input id="e-valor" type="number" step="0.01" placeholder="2000,00"></div>
+            </div>
+            <button class="acao" onclick="registrarEntrada()">Registrar entrada</button>
+          </div>
+        </div>
+        <div class="painel">
+          <h2>Suas caixinhas</h2>
+          <div id="d-caixinhas"></div>
+        </div>
+      </div>
+      <div class="painel">
+        <h2>Distribuição das caixinhas</h2>
+        <canvas id="grafico-pizza" style="max-height:260px"></canvas>
+        <div id="pizza-vazio" class="vazio" style="display:none">Crie caixinhas e guarde dinheiro para ver a distribuição.</div>
+        <div id="painel-bancos" style="display:none;margin-top:20px;border-top:1px solid var(--borda);padding-top:18px">
+          <h2 style="margin-bottom:14px">Dinheiro por banco</h2>
+          <div id="lista-por-banco"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CAIXINHAS -->
+  <section class="tela" id="caixinhas">
+    <div class="paineis">
+      <div class="painel">
+        <h2>Caixinhas</h2>
+        <div id="lista-caixinhas"></div>
+      </div>
+      <div>
+        <div class="painel">
+          <h3 style="font-size:14px;margin-bottom:12px">Nova caixinha</h3>
+          <div class="campo"><label>Nome</label><input id="c-nome" placeholder="Nome (ex.: Lazer)"></div>
+          <div class="campo"><label>Banco</label><select id="c-banco"></select></div>
+          <button class="acao" onclick="criarCaixinha()">Criar caixinha</button>
+        </div>
+        <div class="painel">
+          <h3 style="font-size:14px;margin-bottom:12px">Meus bancos</h3>
+          <div class="campo"><input id="b-nome" placeholder="Nome do banco (ex.: Nubank)"></div>
+          <button class="acao" onclick="criarBanco()">Adicionar banco</button>
+          <div id="lista-bancos" style="margin-top:14px"></div>
+        </div>
+        <div class="painel">
+          <h3 style="font-size:14px;margin-bottom:12px">Guardar dinheiro</h3>
+          <div class="campo"><label>Caixinha</label><select id="a-caixinha"></select></div>
+          <div class="campo"><label>Valor (R$)</label><input id="a-valor" type="number" step="0.01" placeholder="300,00"></div>
+          <button class="acao" onclick="alocar()">Guardar</button>
+        </div>
+        <div class="painel">
+          <h3 style="font-size:14px;margin-bottom:12px">Transferir entre caixinhas</h3>
+          <div class="campo-duplo">
+            <div class="campo"><label>De</label><select id="t-origem"></select></div>
+            <div class="campo"><label>Para</label><select id="t-destino"></select></div>
+          </div>
+          <div class="campo"><label>Valor (R$)</label><input id="t-valor" type="number" step="0.01" placeholder="50,00"></div>
+          <button class="acao" onclick="transferir()">Transferir</button>
+        </div>
+        <div class="painel">
+          <h3 style="font-size:14px;margin-bottom:12px">Gastar de uma caixinha</h3>
+          <div class="campo"><label>Caixinha</label><select id="g-caixinha"></select></div>
+          <div class="campo-duplo">
+            <div class="campo"><label>Descrição</label><input id="g-desc" placeholder="Cinema"></div>
+            <div class="campo"><label>Valor (R$)</label><input id="g-valor" type="number" step="0.01" placeholder="40,00"></div>
+          </div>
+          <button class="acao" onclick="gastarCaixinha()">Registrar gasto</button>
+        </div>
+        <div class="painel">
+          <h3 style="font-size:14px;margin-bottom:12px">Tirar do saldo livre</h3>
+          <div class="campo-duplo">
+            <div class="campo"><label>Descrição</label><input id="s-desc" placeholder="Saque"></div>
+            <div class="campo"><label>Valor (R$)</label><input id="s-valor" type="number" step="0.01" placeholder="100,00"></div>
+          </div>
+          <button class="acao" onclick="tirarSaldoLivre()">Registrar saída</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTAS -->
+  <section class="tela" id="contas">
+    <div class="paineis">
+      <div class="painel">
+        <h2>Contas a pagar</h2>
+        <div id="lista-contas"></div>
+      </div>
+      <div>
+        <div class="painel">
+          <h3 style="font-size:14px;margin-bottom:12px">Cadastrar conta</h3>
+          <div class="campo-duplo">
+            <div class="campo"><label>Nome</label><input id="ct-nome" placeholder="Conta de luz"></div>
+            <div class="campo"><label>Valor (R$)</label><input id="ct-valor" type="number" step="0.01" placeholder="60,00"></div>
+          </div>
+          <div class="campo-duplo">
+            <div class="campo"><label>Vencimento</label><input id="ct-venc" type="date"></div>
+            <div class="campo"><label>Tipo</label>
+              <select id="ct-tipo"><option value="fixa">Conta fixa</option><option value="cartao">Cartão</option><option value="outro">Outros</option></select>
+            </div>
+          </div>
+          <button class="acao" onclick="criarConta()">Cadastrar</button>
+        </div>
+        <div class="painel">
+          <h3 style="font-size:14px;margin-bottom:12px">Assinaturas (repetem todo mês)</h3>
+          <div class="campo-duplo">
+            <div class="campo"><label>Nome</label><input id="r-nome" placeholder="Prime Video"></div>
+            <div class="campo"><label>Valor (R$)</label><input id="r-valor" type="number" step="0.01" placeholder="19,90"></div>
+          </div>
+          <div class="campo-duplo">
+            <div class="campo"><label>Dia vencimento</label><input id="r-dia" type="number" min="1" max="31" placeholder="10"></div>
+            <div class="campo"><label>Tipo</label>
+              <select id="r-tipo"><option value="cartao">Cartão</option><option value="fixa">Conta fixa</option><option value="outro">Outros</option></select>
+            </div>
+          </div>
+          <button class="acao" onclick="criarRecorrente()">Cadastrar assinatura</button>
+          <div id="lista-recorrentes" style="margin-top:14px"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTÓRICO -->
+  <section class="tela" id="historico">
+    <div class="painel">
+      <h2>Todos os movimentos</h2>
+      <div id="lista-historico"></div>
+    </div>
+  </section>
+</main>
+
+<div class="aviso" id="aviso"></div>
+
+<script>
+const API = "";
+let CAIXINHAS = [];
+let TODAS_CAIXINHAS = [];
+let CONTAS = [];
+let BANCOS = [];
+let bancoSelecionado = null;
+let graficoPizza = null;
+let TOKEN = null;
+let primeiroAcesso = false;
+
+function reais(n) {
+  return "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function paraCentavos(valor) { return Math.round(parseFloat(valor) * 100); }
+function aviso(texto, tipo) {
+  const el = document.getElementById("aviso");
+  el.textContent = texto;
+  el.className = "aviso " + tipo;
+  setTimeout(() => { el.className = "aviso"; }, 3000);
+}
+async function pedir(rota, opcoes) {
+  opcoes = opcoes || {};
+  opcoes.headers = opcoes.headers || {};
+  if (TOKEN) opcoes.headers["Authorization"] = "Bearer " + TOKEN;
+  const resp = await fetch(API + rota, opcoes);
+  const dado = await resp.json();
+  if (!resp.ok) throw new Error(dado.detail || "Algo deu errado");
+  return dado;
+}
+
+// ---- login ----
+async function iniciar() {
+  // verifica se já existe senha definida
+  const st = await fetch("/auth/status").then(r => r.json());
+  primeiroAcesso = !st.senha_definida;
+  const sub = document.getElementById("login-subtitulo");
+  const label = document.getElementById("login-label");
+  const botao = document.getElementById("login-botao");
+  const confirma = document.getElementById("login-confirma-campo");
+  if (primeiroAcesso) {
+    sub.textContent = "Crie uma senha para proteger seu app";
+    label.textContent = "Nova senha";
+    botao.textContent = "Criar senha";
+    confirma.style.display = "block";
+  } else {
+    sub.textContent = "Digite sua senha para entrar";
+    label.textContent = "Senha";
+    botao.textContent = "Entrar";
+    confirma.style.display = "none";
+  }
+}
+
+async function enviarLogin() {
+  const senha = document.getElementById("login-senha").value;
+  const erro = document.getElementById("login-erro");
+  erro.textContent = "";
+  if (!senha) { erro.textContent = "Digite a senha."; return; }
+  try {
+    let resp;
+    if (primeiroAcesso) {
+      const confirma = document.getElementById("login-confirma").value;
+      if (senha !== confirma) { erro.textContent = "As senhas não conferem."; return; }
+      resp = await fetch("/auth/definir-senha", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senha })
+      });
+    } else {
+      resp = await fetch("/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senha })
+      });
+    }
+    const dado = await resp.json();
+    if (!resp.ok) { erro.textContent = dado.detail || "Erro."; return; }
+    TOKEN = dado.token;
+    document.getElementById("tela-login").style.display = "none";
+    carregarTudo();
+  } catch (e) { erro.textContent = "Erro ao conectar. O servidor está rodando?"; }
+}
+
+function sair() {
+  TOKEN = null;
+  document.getElementById("tela-login").style.display = "flex";
+  document.getElementById("login-senha").value = "";
+  const conf = document.getElementById("login-confirma");
+  if (conf) conf.value = "";
+  iniciar();
+}
+
+async function carregarTudo() {
+  await carregarBancos();
+  await Promise.all([carregarSaldoLivre(), carregarCaixinhas(), carregarContas(), carregarHistorico(), carregarRecorrentes()]);
+  atualizarPainelBancos();
+}
+
+async function carregarBancos() {
+  BANCOS = await pedir("/bancos");
+  // se nenhum banco selecionado ainda, começa em "todos"
+  if (bancoSelecionado === null && BANCOS.length > 0) {
+    bancoSelecionado = "todos";
+  }
+  // seletor do topo
+  const sel = document.getElementById("seletor-banco");
+  if (BANCOS.length === 0) {
+    sel.innerHTML = '<option value="">Nenhum banco</option>';
+  } else {
+    const optTodos = `<option value="todos" ${bancoSelecionado === "todos" ? "selected" : ""}>Todos</option>`;
+    sel.innerHTML = optTodos + BANCOS.map(b => `<option value="${b.id}" ${b.id === bancoSelecionado ? "selected" : ""}>${b.nome}</option>`).join("");
+  }
+  // menu do criar caixinha
+  const cBanco = document.getElementById("c-banco");
+  cBanco.innerHTML = BANCOS.map(b => `<option value="${b.id}">${b.nome}</option>`).join("");
+  // lista de bancos (gerenciar)
+  const lista = document.getElementById("lista-bancos");
+  if (BANCOS.length === 0) {
+    lista.innerHTML = '<div class="vazio" style="padding:8px 0">Nenhum banco. Crie o primeiro acima.</div>';
+  } else {
+    lista.innerHTML = BANCOS.map(b => `
+      <div class="item"><div class="nome">${b.nome}</div>
+      <button class="perigo" onclick="apagarBanco(${b.id})">Apagar</button></div>`).join("");
+  }
+}
+
+function trocarBanco() {
+  const v = document.getElementById("seletor-banco").value;
+  bancoSelecionado = (v === "todos") ? "todos" : parseInt(v);
+  carregarCaixinhas();
+  atualizarPainelBancos();
+}
+
+async function criarBanco() {
+  const nome = document.getElementById("b-nome").value;
+  if (!nome) return aviso("Dê um nome ao banco.", "erro");
+  try {
+    await pedir("/bancos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome }) });
+    document.getElementById("b-nome").value = "";
+    aviso("Banco adicionado.", "ok");
+    carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function apagarBanco(id) {
+  try {
+    await pedir("/bancos/" + id, { method: "DELETE" });
+    if (bancoSelecionado === id) bancoSelecionado = null;
+    aviso("Banco apagado.", "ok");
+    carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function carregarSaldoLivre() {
+  const s = await pedir("/saldo-livre");
+  document.getElementById("ct-saldo-livre").textContent = reais(s.saldo_livre_reais);
+  document.getElementById("ct-entradas").textContent = reais(s.entradas_reais);
+  document.getElementById("ct-alocado").textContent = reais(s.alocado_reais);
+  document.getElementById("ct-estado-livre").textContent =
+    s.tudo_distribuido ? "Tudo distribuído ✓" : "Ainda há dinheiro sem destino";
+}
+
+async function carregarCaixinhas() {
+  const todas = await pedir("/caixinhas");
+  TODAS_CAIXINHAS = todas;
+  const modoTodos = (bancoSelecionado === "todos");
+  CAIXINHAS = modoTodos ? todas : todas.filter(c => c.banco_id === bancoSelecionado);
+  // mapa de id do banco -> nome, pra etiqueta
+  const nomeBanco = {};
+  BANCOS.forEach(b => { nomeBanco[b.id] = b.nome; });
+  const lista = document.getElementById("lista-caixinhas");
+  const noDash = document.getElementById("d-caixinhas");
+  if (CAIXINHAS.length === 0) {
+    const msg = modoTodos ? "Nenhuma caixinha ainda." : "Nenhuma caixinha neste banco.";
+    lista.innerHTML = `<div class="vazio">${msg}</div>`;
+    noDash.innerHTML = `<div class="vazio">${msg}</div>`;
+  } else {
+    const etiqueta = c => modoTodos ? ` <span style="font-size:11px;color:var(--texto2)">· ${nomeBanco[c.banco_id] || "?"}</span>` : "";
+    lista.innerHTML = CAIXINHAS.map(c => `
+      <div class="item">
+        <div class="nome">${c.nome}${etiqueta(c)}</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="valor roxo">${reais(c.saldo_reais)}</span>
+          <button class="perigo" onclick="apagarCaixinha(${c.id})">Apagar</button>
+        </div>
+      </div>`).join("");
+    noDash.innerHTML = CAIXINHAS.map(c => `
+      <div class="item"><div class="nome">${c.nome}${etiqueta(c)}</div><span class="valor roxo">${reais(c.saldo_reais)}</span></div>`).join("");
+  }
+  const opcoes = CAIXINHAS.map(c => `<option value="${c.id}">${c.nome}</option>`).join("");
+  ["a-caixinha", "t-origem", "t-destino", "g-caixinha"].forEach(id => { document.getElementById(id).innerHTML = opcoes; });
+  desenharPizza();
+}
+
+function atualizarPainelBancos() {
+  const painel = document.getElementById("painel-bancos");
+  if (bancoSelecionado !== "todos") { painel.style.display = "none"; return; }
+  const somaPorBanco = {};
+  let total = 0;
+  TODAS_CAIXINHAS.forEach(c => {
+    somaPorBanco[c.banco_id] = (somaPorBanco[c.banco_id] || 0) + c.saldo_reais;
+    total += c.saldo_reais;
+  });
+  const cores = ["#8b5cf6","#34d399","#f87171","#fbbf24","#60a5fa","#f472b6","#a78bfa","#2dd4bf"];
+  const lista = document.getElementById("lista-por-banco");
+  if (BANCOS.length === 0 || total === 0) {
+    lista.innerHTML = '<div class="vazio">Guarde dinheiro nas caixinhas para ver a divisão por banco.</div>';
+    painel.style.display = "block";
+    return;
+  }
+  lista.innerHTML = BANCOS.map((b, i) => {
+    const valor = somaPorBanco[b.id] || 0;
+    const pct = total > 0 ? Math.round((valor / total) * 100) : 0;
+    const cor = cores[i % cores.length];
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:14px;color:var(--texto)">${b.nome}</span>
+        <span style="font-size:14px;font-weight:600;color:${cor}">${reais(valor)}</span>
+      </div>
+      <div style="height:7px;background:var(--fundo);border-radius:4px"><div style="width:${pct}%;height:100%;background:${cor};border-radius:4px"></div></div>
+      <div style="font-size:11px;color:var(--texto2);margin-top:4px">${pct}% do total</div>
+    </div>`;
+  }).join("");
+  painel.style.display = "block";
+}
+
+function desenharPizza() {
+  const comSaldo = CAIXINHAS.filter(c => c.saldo_reais > 0);
+  const canvas = document.getElementById("grafico-pizza");
+  const vazio = document.getElementById("pizza-vazio");
+  if (comSaldo.length === 0) {
+    canvas.style.display = "none"; vazio.style.display = "block";
+    if (graficoPizza) { graficoPizza.destroy(); graficoPizza = null; }
+    return;
+  }
+  canvas.style.display = "block"; vazio.style.display = "none";
+  const cores = ["#8b5cf6","#34d399","#f87171","#fbbf24","#60a5fa","#f472b6","#a78bfa","#2dd4bf"];
+  const dados = {
+    labels: comSaldo.map(c => c.nome),
+    datasets: [{ data: comSaldo.map(c => c.saldo_reais), backgroundColor: cores, borderColor: "#17132a", borderWidth: 2 }]
+  };
+  if (graficoPizza) {
+    graficoPizza.data = dados; graficoPizza.update();
+  } else {
+    graficoPizza = new Chart(canvas, {
+      type: "doughnut", data: dados,
+      options: { plugins: { legend: { labels: { color: "#9a93b8", padding: 12 }, position: "bottom" } } }
+    });
+  }
+}
+
+// calcula o status de uma conta a partir da data de vencimento
+function statusConta(c) {
+  if (c.paga) return { texto: "Pago", cor: "var(--verde)", fundo: "var(--verde-fundo)" };
+  if (!c.vencimento) return { texto: "A vencer", cor: "var(--amarelo)", fundo: "rgba(251,191,36,0.14)" };
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const venc = new Date(c.vencimento + "T00:00:00");
+  const diasMs = venc - hoje;
+  const dias = Math.round(diasMs / (1000*60*60*24));
+  if (dias < 0) return { texto: "Vencido", cor: "var(--vermelho)", fundo: "var(--vermelho-fundo)" };
+  if (dias === 0) return { texto: "Hoje", cor: "var(--vermelho)", fundo: "var(--vermelho-fundo)" };
+  if (dias <= 5) return { texto: `${dias} dia${dias>1?"s":""}`, cor: "var(--amarelo)", fundo: "rgba(251,191,36,0.14)" };
+  return { texto: "A vencer", cor: "var(--amarelo)", fundo: "rgba(251,191,36,0.14)" };
+}
+
+async function carregarContas() {
+  const contas = await pedir("/contas");
+  CONTAS = contas;
+  const lista = document.getElementById("lista-contas");
+  let falta = 0;
+  contas.forEach(c => { if (!c.paga) falta += c.valor_reais; });
+  document.getElementById("ct-contas").textContent = reais(falta);
+  if (contas.length === 0) { lista.innerHTML = '<div class="vazio">Nenhuma conta cadastrada.</div>'; return; }
+
+  // ordena: não pagas primeiro, e dentro delas as que vencem antes
+  contas.sort((a, b) => {
+    if (a.paga !== b.paga) return a.paga - b.paga;
+    return (a.vencimento || "9999").localeCompare(b.vencimento || "9999");
+  });
+
+  // cabeçalho da "tabela"
+  let html = `<div class="tabela-cabecalho">
+    <span>Descrição</span><span>Vencimento</span><span>Valor</span><span>Status</span><span></span>
+  </div>`;
+
+  html += contas.map(c => {
+    const st = statusConta(c);
+    const tag = `<span class="status-tag" style="color:${st.cor};background:${st.fundo}">${st.texto}</span>`;
+    if (c.paga) {
+      return `<div class="linha-conta paga">
+        <div><div class="nome">${c.nome}</div><div class="sub">${c.tipo}</div></div>
+        <div class="col-venc">${c.vencimento || "—"}</div>
+        <div class="valor">${reais(c.valor_reais)}</div>
+        <div>${tag}</div>
+        <div style="text-align:right"><button class="perigo" onclick="desfazerPagamento(${c.id})">Desfazer</button></div>
+      </div>`;
+    }
+    const menu = CAIXINHAS.map(cx => `<option value="${cx.id}">${cx.nome}</option>`).join("");
+    return `<div class="linha-conta">
+      <div><div class="nome">${c.nome}</div><div class="sub">${c.tipo}</div></div>
+      <div class="col-venc">${c.vencimento || "—"}</div>
+      <div class="valor menos">${reais(c.valor_reais)}</div>
+      <div>${tag}</div>
+      <div style="display:flex;gap:6px;align-items:center;justify-content:flex-end">
+        <select style="font-family:inherit;font-size:12px;padding:6px;border:1px solid var(--borda);border-radius:8px;background:var(--fundo);color:var(--texto);max-width:110px" id="pagar-${c.id}">${menu}</select>
+        <button class="acao pequeno" onclick="pagarConta(${c.id})">Pagar</button>
+        <button class="perigo" onclick="editarConta(${c.id})">Editar</button>
+        <button class="perigo" onclick="apagarConta(${c.id})">Apagar</button>
+      </div>
+    </div>`;
+  }).join("");
+  lista.innerHTML = html;
+}
+
+// F2: define ícone, cor e rótulo de cada movimento a partir do tipo
+function visualLanc(l) {
+  const ehTransf = (l.descricao || "").startsWith("transferência");
+  if (ehTransf)
+    return { icone: "⇄", cor: "var(--roxo-claro)", fundo: "var(--roxo-fundo)", classe: "roxo", sinal: "", rot: "Transferência" };
+  if (l.tipo === "entrada")
+    return { icone: "↓", cor: "var(--verde)", fundo: "var(--verde-fundo)", classe: "mais", sinal: "+ ", rot: "Entrada" };
+  if (l.tipo === "alocacao")
+    return { icone: "▣", cor: "var(--roxo-claro)", fundo: "var(--roxo-fundo)", classe: "roxo", sinal: "", rot: "Guardado em caixinha" };
+  if (l.tipo === "pagamento") {
+    const rot = (l.descricao === "pagamento de conta") ? "Pagamento de conta" : "Gasto de caixinha";
+    return { icone: "↑", cor: "var(--vermelho)", fundo: "var(--vermelho-fundo)", classe: "menos", sinal: "− ", rot };
+  }
+  if (l.tipo === "saida_livre")
+    return { icone: "↑", cor: "var(--vermelho)", fundo: "var(--vermelho-fundo)", classe: "menos", sinal: "− ", rot: "Saída (dinheiro livre)" };
+  return { icone: "•", cor: "var(--texto2)", fundo: "var(--painel2)", classe: "roxo", sinal: "", rot: l.tipo };
+}
+
+// F2: transforma a data AAAA-MM-DD no rótulo do grupo ("Hoje", "Ontem" ou a data por extenso)
+function rotuloDia(dataStr) {
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const d = new Date(dataStr + "T00:00:00");
+  const dif = Math.round((hoje - d) / (1000*60*60*24));
+  if (dif === 0) return "Hoje";
+  if (dif === 1) return "Ontem";
+  return d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+}
+
+// F2: monta a linha de um movimento no histórico (com ícone circular colorido)
+function linhaHistorico(l) {
+  const v = visualLanc(l);
+  return `<div class="item">
+    <div style="display:flex;align-items:center;gap:12px;min-width:0">
+      <span class="ico-circ" style="color:${v.cor};background:${v.fundo}">${v.icone}</span>
+      <div style="min-width:0"><div class="nome">${l.descricao}</div><div class="sub">${v.rot}</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="valor ${v.classe}">${v.sinal}${reais(l.valor_reais)}</span>
+      <button class="perigo" onclick="apagarLancamento(${l.id})">Apagar</button>
+    </div></div>`;
+}
+
+async function carregarHistorico() {
+  const lanc = await pedir("/lancamentos");
+  const lista = document.getElementById("lista-historico");
+  if (lanc.length === 0) { lista.innerHTML = '<div class="vazio">Nenhum movimento ainda.</div>'; return; }
+
+  // agrupa por dia; lançamentos sem data (antigos) vão para um grupo à parte
+  const grupos = {};
+  const semData = [];
+  lanc.forEach(l => {
+    if (l.data) { (grupos[l.data] = grupos[l.data] || []).push(l); }
+    else { semData.push(l); }
+  });
+
+  // dias do mais recente para o mais antigo; dentro do dia, movimento mais novo primeiro
+  const dias = Object.keys(grupos).sort().reverse();
+  let html = "";
+  dias.forEach(dia => {
+    html += `<div class="grupo-dia">${rotuloDia(dia)}</div>`;
+    html += grupos[dia].slice().reverse().map(linhaHistorico).join("");
+  });
+  if (semData.length) {
+    html += `<div class="grupo-dia">Registros antigos (sem data)</div>`;
+    html += semData.slice().reverse().map(linhaHistorico).join("");
+  }
+  lista.innerHTML = html;
+}
+
+async function carregarRecorrentes() {
+  const recs = await pedir("/recorrentes");
+  const lista = document.getElementById("lista-recorrentes");
+  if (recs.length === 0) { lista.innerHTML = '<div class="vazio" style="padding:8px 0">Nenhuma assinatura.</div>'; return; }
+  lista.innerHTML = recs.map(r => `
+    <div class="item"><div><div class="nome">${r.nome}</div><div class="sub">todo dia ${r.dia_vencimento}</div></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="valor menos">${reais(r.valor_reais)}</span>
+      <button class="perigo" onclick="apagarRecorrente(${r.id})">Apagar</button>
+    </div></div>`).join("");
+}
+
+async function registrarEntrada() {
+  const desc = document.getElementById("e-desc").value || "Entrada";
+  const valor = document.getElementById("e-valor").value;
+  if (!valor) return aviso("Informe o valor.", "erro");
+  try {
+    await pedir("/lancamentos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "entrada", valor_centavos: paraCentavos(valor), descricao: desc, caixinha_id: null }) });
+    document.getElementById("e-desc").value = ""; document.getElementById("e-valor").value = "";
+    aviso("Entrada registrada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function criarCaixinha() {
+  const nome = document.getElementById("c-nome").value;
+  const bancoId = document.getElementById("c-banco").value;
+  if (!nome) return aviso("Dê um nome à caixinha.", "erro");
+  if (!bancoId) return aviso("Crie um banco primeiro e escolha um.", "erro");
+  try {
+    await pedir("/caixinhas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome, banco_id: parseInt(bancoId) }) });
+    document.getElementById("c-nome").value = ""; aviso("Caixinha criada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function alocar() {
+  const id = document.getElementById("a-caixinha").value;
+  const valor = document.getElementById("a-valor").value;
+  if (!id) return aviso("Crie uma caixinha primeiro.", "erro");
+  if (!valor) return aviso("Informe o valor.", "erro");
+  try {
+    await pedir("/lancamentos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "alocacao", valor_centavos: paraCentavos(valor), descricao: "guardado", caixinha_id: parseInt(id) }) });
+    document.getElementById("a-valor").value = ""; aviso("Dinheiro guardado.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function transferir() {
+  const origem = document.getElementById("t-origem").value;
+  const destino = document.getElementById("t-destino").value;
+  const valor = document.getElementById("t-valor").value;
+  if (!valor) return aviso("Informe o valor.", "erro");
+  try {
+    await pedir("/transferir", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ origem_id: parseInt(origem), destino_id: parseInt(destino), valor_centavos: paraCentavos(valor) }) });
+    document.getElementById("t-valor").value = ""; aviso("Transferência feita.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function gastarCaixinha() {
+  const id = document.getElementById("g-caixinha").value;
+  const desc = document.getElementById("g-desc").value || "gasto";
+  const valor = document.getElementById("g-valor").value;
+  if (!id) return aviso("Crie uma caixinha primeiro.", "erro");
+  if (!valor) return aviso("Informe o valor.", "erro");
+  try {
+    await pedir("/lancamentos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "pagamento", valor_centavos: paraCentavos(valor), descricao: desc, caixinha_id: parseInt(id) }) });
+    document.getElementById("g-desc").value = ""; document.getElementById("g-valor").value = "";
+    aviso("Gasto registrado.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function tirarSaldoLivre() {
+  const desc = document.getElementById("s-desc").value || "saída";
+  const valor = document.getElementById("s-valor").value;
+  if (!valor) return aviso("Informe o valor.", "erro");
+  try {
+    await pedir("/lancamentos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "saida_livre", valor_centavos: paraCentavos(valor), descricao: desc, caixinha_id: null }) });
+    document.getElementById("s-desc").value = ""; document.getElementById("s-valor").value = "";
+    aviso("Saída registrada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function criarConta() {
+  const nome = document.getElementById("ct-nome").value;
+  const valor = document.getElementById("ct-valor").value;
+  const venc = document.getElementById("ct-venc").value;
+  const tipo = document.getElementById("ct-tipo").value;
+  if (!nome || !valor) return aviso("Preencha nome e valor.", "erro");
+  try {
+    await pedir("/contas", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome, valor_centavos: paraCentavos(valor), vencimento: venc, tipo }) });
+    document.getElementById("ct-nome").value = ""; document.getElementById("ct-valor").value = ""; document.getElementById("ct-venc").value = "";
+    aviso("Conta cadastrada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function criarRecorrente() {
+  const nome = document.getElementById("r-nome").value;
+  const valor = document.getElementById("r-valor").value;
+  const dia = document.getElementById("r-dia").value;
+  const tipo = document.getElementById("r-tipo").value;
+  if (!nome || !valor || !dia) return aviso("Preencha nome, valor e dia.", "erro");
+  try {
+    await pedir("/recorrentes", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome, valor_centavos: paraCentavos(valor), dia_vencimento: parseInt(dia), tipo }) });
+    document.getElementById("r-nome").value = ""; document.getElementById("r-valor").value = ""; document.getElementById("r-dia").value = "";
+    aviso("Assinatura cadastrada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function pagarConta(id) {
+  const caixinhaId = document.getElementById("pagar-" + id).value;
+  if (!caixinhaId) return aviso("Crie uma caixinha para pagar.", "erro");
+  try {
+    await pedir(`/contas/${id}/pagar`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ caixinha_id: parseInt(caixinhaId) }) });
+    aviso("Conta paga.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function apagarLancamento(id) {
+  try { await pedir("/lancamentos/" + id, { method: "DELETE" }); aviso("Lançamento apagado.", "ok"); carregarTudo(); }
+  catch (e) { aviso(e.message, "erro"); }
+}
+
+async function desfazerPagamento(id) {
+  try { await pedir(`/contas/${id}/desfazer-pagamento`, { method: "POST" }); aviso("Pagamento desfeito.", "ok"); carregarTudo(); }
+  catch (e) { aviso(e.message, "erro"); }
+}
+
+async function apagarConta(id) {
+  if (!confirm("Apagar esta dívida? Isso não pode ser desfeito.")) return;
+  try { await pedir("/contas/" + id, { method: "DELETE" }); aviso("Dívida apagada.", "ok"); carregarTudo(); }
+  catch (e) { aviso(e.message, "erro"); }
+}
+
+async function editarConta(id) {
+  const c = CONTAS.find(x => x.id === id);
+  if (!c) return;
+  const nome = prompt("Nome da dívida:", c.nome);
+  if (nome === null) return;
+  const valorStr = prompt("Valor (R$):", c.valor_reais.toFixed(2));
+  if (valorStr === null) return;
+  const vencimento = prompt("Vencimento (AAAA-MM-DD):", c.vencimento || "");
+  if (vencimento === null) return;
+  const tipo = prompt("Tipo (fixa, cartao, outro):", c.tipo || "outro");
+  if (tipo === null) return;
+  const valor = parseFloat(valorStr.replace(",", "."));
+  if (isNaN(valor)) return aviso("Valor inválido.", "erro");
+  try {
+    await pedir("/contas/" + id, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome, valor_centavos: Math.round(valor * 100), vencimento, tipo })
+    });
+    aviso("Dívida editada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function apagarCaixinha(id) {
+  try { await pedir("/caixinhas/" + id, { method: "DELETE" }); aviso("Caixinha apagada.", "ok"); carregarTudo(); }
+  catch (e) { aviso(e.message, "erro"); }
+}
+
+async function apagarRecorrente(id) {
+  try { await pedir("/recorrentes/" + id, { method: "DELETE" }); aviso("Assinatura apagada.", "ok"); carregarTudo(); }
+  catch (e) { aviso(e.message, "erro"); }
+}
+
+// troca de telas pelo menu lateral
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico" };
+document.querySelectorAll(".item-menu").forEach(item => {
+  item.addEventListener("click", () => {
+    const tela = item.dataset.tela;
+    if (!tela) return; // botões sem aba (ex.: Sair) não trocam de tela
+    document.querySelectorAll(".item-menu").forEach(a => a.classList.remove("ativa"));
+    document.querySelectorAll(".tela").forEach(t => t.classList.remove("ativa"));
+    item.classList.add("ativa");
+    document.getElementById(tela).classList.add("ativa");
+    document.getElementById("titulo-tela").textContent = titulos[tela];
+  });
+});
+
+// data de hoje
+const hoje = new Date();
+document.getElementById("data-hoje").textContent = hoje.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
+
+iniciar().catch(() => {
+  document.getElementById("login-erro").textContent = "Erro ao conectar. O servidor está rodando?";
+});
+</script>
+</body>
+</html>
