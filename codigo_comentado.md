@@ -1,5 +1,12 @@
 # Código completo comentado — `main.py`
 
+> ⚠️ **SNAPSHOT HISTÓRICO (versão inicial do projeto).** Este passo-a-passo comentado retrata uma
+> versão **antiga** do `main.py` (3 tabelas, sem login, ~11 rotas). O `main.py` atual tem ~1318 linhas,
+> com autenticação JWT, ~40 rotas e 8 tabelas — e **já é bastante comentado no próprio arquivo**.
+> Este documento é mantido como material de estudo do começo do projeto. Para o **estado atual**, use o
+> próprio `main.py` (comentado) e o `documentacao_tecnica.md` (modelo de dados e rotas completos).
+> Não re-anotamos as 1318 linhas aqui de propósito — seria duplicar os comentários que já existem no código.
+
 Este documento reúne todo o código do projeto até aqui, exatamente como está,
 com uma explicação antes de cada bloco. Serve como referência de estudo e como
 o estado atual do `main.py`.

@@ -1,5 +1,11 @@
 # Guia do sistema financeiro pessoal
 
+> ⚠️ **DOCUMENTO HISTÓRICO (plano original, pré-programação).** Este era o desenho inicial para
+> levar ao Figma — fala em "4 telas e 3 popups". **O app final ficou diferente e maior** (8 telas,
+> sem popups, com login, faturas, importador, regras de salário etc.). Mantido como registro da ideia
+> original. Para o **estado atual**, use o `README.md` (visão geral e como rodar) e o
+> `documentacao_tecnica.md` (arquitetura, dados e rotas). Etapas e decisões: `diario_projeto_financeiro.md`.
+
 Documento único de referência para levar ao Figma e depois programar.
 Uso pessoal, rodando no seu próprio computador, sem publicação para outras pessoas por enquanto.
 
