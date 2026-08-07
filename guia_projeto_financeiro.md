@@ -1,184 +1,110 @@
-# Guia do sistema financeiro pessoal
+# Manual do usuário — Meu Orçamento
 
-> ⚠️ **DOCUMENTO HISTÓRICO (plano original, pré-programação).** Este era o desenho inicial para
-> levar ao Figma — fala em "4 telas e 3 popups". **O app final ficou diferente e maior** (8 telas,
-> sem popups, com login, faturas, importador, regras de salário etc.). Mantido como registro da ideia
-> original. Para o **estado atual**, use o `README.md` (visão geral e como rodar) e o
-> `documentacao_tecnica.md` (arquitetura, dados e rotas). Etapas e decisões: `diario_projeto_financeiro.md`.
-
-Documento único de referência para levar ao Figma e depois programar.
-Uso pessoal, rodando no seu próprio computador, sem publicação para outras pessoas por enquanto.
+> Guia prático de **como usar o app** no dia a dia (atualizado em 06/08/2026, reflete o estado atual).
+> Para a parte técnica (dados, rotas, código), ver `documentacao_tecnica.md`. Para o histórico de
+> decisões, `diario_projeto_financeiro.md`.
 
 ---
 
 ## 1. A ideia em uma frase
 
-Um app onde você dá um destino para cada real que entra, guarda o dinheiro
-em "caixinhas" (envelopes) e registra cada gasto sempre tirando de uma caixinha
-específica, até o saldo livre chegar a R$ 0,00 (orçamento base zero).
+Você dá um **destino para cada real** que entra: guarda o dinheiro em **caixinhas** (envelopes) e
+registra cada gasto tirando de uma caixinha, até o **saldo livre** chegar a R$ 0,00 (orçamento base zero).
+
+**Regra de ouro:** dinheiro nunca some nem aparece do nada — todo movimento tem origem e destino.
 
 ---
 
-## 2. Os quatro conceitos de dinheiro
+## 2. Primeiro acesso e login
 
-Antes das telas, entenda os quatro movimentos. Toda a lógica gira em torno deles.
-
-1. **Entrada** — dinheiro que chega de fora (salário). Aumenta o saldo livre.
-2. **Alocação** — mover parte do saldo livre para uma caixinha. Diminui o saldo livre, aumenta a caixinha.
-3. **Pagamento / gasto** — dinheiro que sai para fora, sempre puxado de uma caixinha. Diminui a caixinha.
-4. **Transferência** — mover dinheiro de uma caixinha para outra. Não muda o total, só troca de bolso.
-
-Regra de ouro: **dinheiro nunca some nem aparece do nada.** Todo movimento tem origem e destino.
+- Na primeira vez, o app pede pra você **criar uma senha** (mínimo 4 caracteres). Ela protege seus dados.
+- Nas próximas vezes, é só digitar a senha pra entrar. A sessão dura 30 dias.
+- Não há "recuperar senha" (é um app local): se esquecer, a senha é resetada apagando o arquivo do banco.
 
 ---
 
-## 3. As quatro telas
+## 3. Os tipos de movimento
 
-### Tela 1 — Dashboard (visão geral)
-O painel para bater o olho e entender a saúde do mês.
-- Três números no topo: Salário, Dívidas obrigatórias, Saldo disponível.
-- Barra de distribuição do dinheiro (quanto foi para cada categoria).
-- Progresso das metas e caixinhas (barras de porcentagem).
-
-### Tela 2 — Meu saldo
-O detalhe do dinheiro e as caixinhas.
-- Saldo livre em destaque no topo.
-- Três cards: Entradas, Comprometido (dívidas), Nas caixinhas.
-- Lista das caixinhas com o valor de cada uma.
-- **Botão "Transferir"** para remanejar entre caixinhas (abre popup C).
-
-### Tela 3 — Dívidas e despesas
-As obrigações do mês.
-- Dois números: Total do mês, Ainda resta pagar.
-- Filtros: Todas, Cartões, Contas fixas, Outros.
-- Cards por conta com ícone, nome, tipo, vencimento e valor.
-- Botão **[ Pagar ]** que fica verde ao clicar (abre popup B para escolher a caixinha).
-- Botão **[ + Adicionar conta ]** (abre popup A).
-- Contas já pagas aparecem no fim da lista, com opacidade reduzida.
-- Vencimentos futuros aparecem aqui, não no histórico.
-
-### Tela 4 — Histórico e extrato
-O livro-caixa, imutável, agrupado por data (Hoje, Semana passada...).
-- Verde (+) para entradas.
-- Vermelho (−) para contas pagas.
-- Azul (−) para gastos tirados de caixinhas.
-- Cinza para transferências entre caixinhas (neutro, não é entrada nem gasto real).
+| Movimento | O que faz |
+|-----------|-----------|
+| **Entrada** | Dinheiro que chega (salário). Aumenta o saldo livre. |
+| **Guardar (alocação)** | Move do saldo livre para uma caixinha. |
+| **Gasto/pagamento** | Sai de uma caixinha para fora (compra, conta paga). |
+| **Transferência** | Troca dinheiro entre caixinhas (não muda o total). |
+| **Rendimento** | Juros/CDI que caem numa caixinha. Não conta como entrada nem mexe no saldo livre. |
+| **Saída do saldo livre** | Sai dinheiro que ainda não estava guardado em caixinha. |
 
 ---
 
-## 4. Os três popups
+## 4. As telas (menu à esquerda)
 
-### Popup A — Adicionar conta (a partir da Tela 3)
-Campos: nome, valor, vencimento, tipo (Cartão / Conta fixa / Outros),
-checkbox "Repetir todo mês" (conta recorrente).
-Cria uma dívida futura. Ainda NÃO mexe em dinheiro.
+### 🏠 Visão geral (dashboard)
+Bate o olho e entende a saúde do mês:
+- Cards no topo: **saldo livre**, entradas do mês, guardado em caixinhas, contas a pagar.
+- **Streak** 🔥 "N meses seguidos poupando" (aparece quando você gasta menos do que ganha).
+- **Registrar entrada** (atalho: tecla **E**).
+- **Pizza** de distribuição das caixinhas.
 
-### Popup B — Pagar puxando da caixinha (a partir da Tela 3)
-Mostra a conta que está sendo paga e pergunta de qual caixinha sai o dinheiro.
-A caixinha mais provável já vem pré-selecionada.
-Ao confirmar, acontecem três coisas ao mesmo tempo:
-- a conta vira "Pago" verde na Tela 3;
-- a caixinha escolhida perde o valor (Tela 2);
-- surge uma linha azul no histórico (Tela 4).
+### 🐷 Caixinhas
+Onde o dinheiro mora:
+- Lista das caixinhas com saldo, **meta** (barra de progresso) e, se a meta tem **prazo**, quanto
+  guardar por mês pra atingir a tempo (ex.: "guarde R$ 164,33/mês até janeiro").
+- **Termômetro do mês** 🌡️: no seu ritmo de gastos, quando cada caixinha zera.
+- Formulários: nova caixinha, novo banco, **guardar** dinheiro, **registrar rendimento** 📈,
+  **transferir**, **gastar** de uma caixinha (atalho **G**), **tirar do saldo livre**.
+- Definir/editar meta: clique no ícone de alvo na caixinha (ele pergunta o valor e, opcionalmente, a data-limite).
 
-### Popup C — Transferir entre caixinhas (a partir da Tela 2)
-Escolhe origem, destino e valor. Mostra em tempo real como cada caixinha
-vai ficar depois. Não muda o saldo total nem o saldo livre.
-No histórico, vira uma linha cinza neutra.
+### 💳 Dívidas
+As contas a pagar:
+- Tabela com vencimento, valor e **status** (Pago / Vencido / Vence hoje / **Faltam X dias** quando ≤7 / A vencer).
+- **Pagar**: escolhe a caixinha de onde sai o dinheiro. **Desfazer** reverte.
+- **Fatura de cartão**: uma conta do tipo "fatura" soma vários gastos (clique na seta pra abrir e lançar itens).
+- **Arquivar**: conta paga pode ser arquivada (some da lista, mas fica no histórico). Botão "Arquivar
+  pagas antigas" limpa de uma vez; "Ver arquivadas" mostra/restaura.
+- **Assinaturas** (repetem todo mês): cadastre e escolha "Cobrar em" → conta avulsa **ou dentro da
+  fatura de um cartão** (aí ela soma na fatura automaticamente todo mês). Dá pra trocar isso a qualquer hora.
 
-Padrão visual dos três popups: mesma largura, cabeçalho com ícone,
-botão confirmar à direita em azul, cancelar à esquerda neutro.
+### 📋 Histórico
+O extrato completo, agrupado por **mês** (com resumo de entradas/saídas) e por dia. Filtros
+(Tudo/Entradas/Saídas/Caixinhas) e busca por descrição.
 
----
+### 📊 Análise
+Visão do mês: entrou, saiu, sobrou; % gasto; principais gastos; para onde foi o dinheiro. Botão
+**"Ver retrospectiva"** 🎉 mostra o resumo de um mês escolhido.
 
-## 5. Como programar (a stack que você já definiu)
+### 🏷️ Categorias
+Gerencia os rótulos usados nas contas e assinaturas (Conta fixa, Cartão, Outros — e os que você criar).
 
-- **Back-end:** Python + FastAPI (a inteligência e as regras).
-- **Banco:** SQLite (um arquivo local, sem servidor).
-- **Front-end:** HTML + CSS + JavaScript, consumindo a API.
-- Tudo roda no seu computador. Como é uso pessoal, não precisa de login,
-  senha, nem hospedagem. Você abre o navegador no `localhost` e usa.
+### ⚡ Regras
+**Regras de salário**: "quando entrar uma **Salário**, guarde 10% na Reserva" (porcentagem ou valor
+fixo). Ao registrar a entrada com esse nome, o app faz a alocação sozinho.
 
-### 5.1 Modelagem do banco (as tabelas)
-
-Pense em quatro tabelas. É o mínimo que faz o método fechar.
-
-**caixinhas**
-- id
-- nome (ex.: "Lazer")
-- meta (opcional, valor que você quer juntar)
-- saldo_atual
-
-**contas** (as dívidas/despesas da Tela 3)
-- id
-- nome
-- valor
-- vencimento (data)
-- tipo ("cartao", "fixa", "outro")
-- recorrente (sim/não)
-- paga (sim/não)
-
-**lancamentos** (o histórico da Tela 4 — o coração de tudo)
-- id
-- data
-- tipo ("entrada", "alocacao", "pagamento", "transferencia")
-- valor
-- caixinha_origem_id (pode ser vazio, ex.: numa entrada)
-- caixinha_destino_id (pode ser vazio, ex.: num pagamento para fora)
-- conta_id (só quando o lançamento paga uma conta)
-- descricao
-
-**config** (opcional)
-- salario_mensal, mês de referência etc.
-
-### 5.2 A regra mais importante de programação
-
-**Nunca edite o saldo de uma caixinha "na mão".** O saldo é sempre a soma
-dos lançamentos que entraram menos os que saíram. Assim o histórico e os
-saldos nunca ficam diferentes um do outro. Cada botão do app cria um
-lançamento; o saldo é recalculado a partir deles.
-
-Isso te dá a Tela 4 de graça: o histórico é simplesmente a tabela de
-lançamentos ordenada por data.
-
-### 5.3 Guarde dinheiro em centavos, como número inteiro
-
-R$ 60,00 vira o número `6000`. Nunca use número quebrado (float) para
-dinheiro — dá erro de arredondamento chato de achar depois. Divide por
-100 só na hora de mostrar na tela.
-
-### 5.4 O que cada botão faz no back-end
-
-- **Registrar salário** → cria lançamento tipo "entrada". Aumenta saldo livre.
-- **Criar/alocar caixinha** → cria lançamento tipo "alocacao". Tira do saldo livre.
-- **Pagar conta (popup B)** → cria lançamento tipo "pagamento" com caixinha_origem e conta_id; marca a conta como paga.
-- **Transferir (popup C)** → cria lançamento tipo "transferencia" com origem e destino.
-
-### 5.5 O "saldo não alocado" (o objetivo do base zero)
-
-Saldo livre = Entradas − tudo que já foi alocado em caixinhas.
-Quando chega a R$ 0,00, o indicador fica verde: todo o dinheiro tem destino.
-É só uma conta, não precisa de tabela própria.
+### 📥 Importar
+Arraste o **extrato do banco** (OFX ou CSV) — o app lê os lançamentos, adivinha a caixinha pela
+descrição, e **você revisa antes de salvar**. (Foto/PDF de conta ainda não; ver `estudo_ocr_conta_imagem.md`.)
 
 ---
 
-## 6. Ordem sugerida para construir (não faça tudo de uma vez)
+## 5. Retrospectiva mensal
 
-1. Banco + as quatro tabelas.
-2. Registrar entrada e criar caixinhas (fazer o saldo livre zerar).
-3. Pagar conta puxando da caixinha (o núcleo do dia a dia).
-4. Transferência entre caixinhas (o que segura o método quando algo estoura).
-5. Histórico lendo a tabela de lançamentos.
-6. Só depois: gráficos e comparação entre meses (consome muito tempo; deixe para uma versão 2).
-
-Fazer UM mês funcionar redondo, com pagamento e transferência, vale mais
-que dez telas pela metade.
+No primeiro acesso de um mês novo, aparece um **pop-up** com o resumo do mês anterior (quanto entrou,
+saiu, guardou, maior gasto). Dá pra reabrir a qualquer momento pela tela Análise.
 
 ---
 
-## 7. Cuidados de UX para o Figma
+## 6. Atalhos de teclado
 
-- Consistência nos popups (mesmo layout, mesmos botões nos mesmos lugares).
-- Cores com significado fixo: verde entrada, vermelho conta paga, azul gasto de caixinha, cinza transferência.
-- Sempre mostrar o "antes e depois" em movimentos de dinheiro (como o quadro no popup de transferência), para evitar erro.
-- Pré-selecionar a opção mais provável (a caixinha certa ao pagar) para poupar cliques.
+- **E** → abre "Registrar entrada"
+- **G** → abre "Gastar de uma caixinha"
+- **Enter** → salva o formulário (no campo de valor)
+- **Esc** → tira o foco do campo
+
+---
+
+## 7. Dicas de uso
+
+- **Zere o saldo livre**: guarde tudo em caixinhas até o saldo livre bater R$ 0,00 (é o objetivo do base zero).
+- **Meta com prazo** é ótima pra despesas grandes futuras (IPVA, viagem): o app te diz quanto guardar por mês.
+- **Assinatura na fatura**: se você paga Netflix/Spotify no cartão, vincule à fatura — some tudo num lugar só.
+- **Importar** o extrato uma vez por mês economiza digitação.
+- **Backup**: de vez em quando, copie o arquivo `financeiro.db` (é onde estão todos os seus dados).

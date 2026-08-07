@@ -195,6 +195,19 @@ criar_tabelas()
 def data_hoje():
     return date.today().isoformat()
 
+# valida uma data recebida: vazia (usa hoje) OU no formato AAAA-MM-DD com ano plausível.
+# evita "datas malucas" (ex.: ano 1990, texto solto) que quebrariam agrupamentos/ordem.
+def data_valida(s):
+    if not s:
+        return True
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+    if not m:
+        return False
+    ano, mes, dia = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if not (2000 <= ano <= 2100 and 1 <= mes <= 12 and 1 <= dia <= 31):
+        return False
+    return True
+
 # saldo de uma caixinha = (alocações + rendimentos) menos pagamentos dela.
 # M2: 'rendimento' (ex.: CDI) entra na caixinha como dinheiro novo — por isso soma aqui,
 # mas NÃO conta como 'entrada' (não infla "Entrou no mês") nem sai do saldo livre.
@@ -577,6 +590,11 @@ def login(item: Login):
 
 @app.post("/lancamentos")
 def criar_lancamento(item: NovoLancamento, _=Depends(exigir_login)):
+    # validações de entrada
+    if item.valor_centavos <= 0:
+        raise HTTPException(status_code=400, detail="O valor precisa ser maior que zero.")
+    if not data_valida(item.data):
+        raise HTTPException(status_code=400, detail="Data inválida (use AAAA-MM-DD, ano entre 2000 e 2100).")
     con = conectar()
     # usa a data escolhida (se veio) ou a de hoje
     data = item.data if item.data else data_hoje()
@@ -768,6 +786,11 @@ def apagar_caixinha(caixinha_id: int, _=Depends(exigir_login)):
 
 @app.post("/contas")
 def criar_conta(item: NovaConta, _=Depends(exigir_login)):
+    # validações: conta simples precisa de valor > 0; vencimento (se veio) tem que ser data válida
+    if item.tipo_conta != "fatura" and item.valor_centavos <= 0:
+        raise HTTPException(status_code=400, detail="O valor da conta precisa ser maior que zero.")
+    if not data_valida(item.vencimento):
+        raise HTTPException(status_code=400, detail="Vencimento inválido (use AAAA-MM-DD, ano entre 2000 e 2100).")
     con = conectar()
     # fatura nasce com total 0 (o valor vem da soma dos itens); simples usa o valor informado.
     valor = 0 if item.tipo_conta == "fatura" else item.valor_centavos
@@ -806,6 +829,9 @@ def editar_conta(conta_id: int, item: EditarConta, _=Depends(exigir_login)):
     if conta[0] == 1:
         con.close()
         raise HTTPException(status_code=400, detail="Não dá pra editar uma conta paga. Use 'desfazer' primeiro.")
+    if not data_valida(item.vencimento):
+        con.close()
+        raise HTTPException(status_code=400, detail="Vencimento inválido (use AAAA-MM-DD, ano entre 2000 e 2100).")
     con.execute(
         "UPDATE contas SET nome=?, valor_centavos=?, vencimento=?, tipo=? WHERE id=?",
         (item.nome, item.valor_centavos, item.vencimento, item.tipo, conta_id)

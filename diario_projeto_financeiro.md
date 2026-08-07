@@ -1114,3 +1114,24 @@ de 847 → **1318 linhas**; `index.html` de 1396 → **1934 linhas**.
 **⚠ Ao aplicar na máquina do Renan:** fazer backup do `financeiro.db` antes (a Etapa 20 adiciona
 colunas `arquivada`, `meta_prazo`, `conta_fatura_id` e a tabela `regras_salario` — migração
 idempotente e testada sobre banco populado, mas backup é regra).
+
+### Etapa 20.1 — Validações de entrada + docs atualizados (06/08/2026)
+
+Ao revisar o código a pedido do Renan ("se tiver correções pode fazer"), implementei parte das
+**validações pendentes** (anotadas na "Pendência — Validações de entrada"):
+- Nova função `data_valida(s)`: recusa data fora do formato `AAAA-MM-DD` ou com ano fora de 2000–2100
+  ("datas malucas").
+- `criar_lancamento`: recusa `valor_centavos <= 0` e data inválida (antes aceitava qualquer coisa).
+- `criar_conta`: recusa valor ≤ 0 em conta simples (fatura segue nascendo com 0) e vencimento inválido.
+- `editar_conta`: valida o vencimento.
+Testado (porta 8240): valor 0/negativo → 400; datas `1990-01-01`, `abc`, `9999-99-99` → 400; válidos
+passam; fatura com valor 0 continua normal. **AINDA pendente** desta lista: travar "gastar de caixinha"
+avulso quando não há saldo (deixei de fora pra não arriscar quebrar o importador, que insere pagamentos
+direto). Os inserts diretos (transferir, pagar_conta, importar, regras) não passam por essas validações
+de propósito.
+
+**Documentação atualizada e versionada:** `documentacao_tecnica.md` reescrita pro estado atual;
+`guia_projeto_financeiro.md` virou **manual do usuário** das 8 telas; `codigo_comentado.md` reescrito
+cobrindo os blocos novos (migração, rendimento, regras de salário, E2 fatura, E3 parsers, E6 wrapped) +
+as validações. Fluxo combinado com o Renan: **toda mudança → documentar no Obsidian → push no GitHub**
+([[feedback-git-repo-financeiro]]). Repo: `Renanzin15/Sistema-Financeiro` (privado).
