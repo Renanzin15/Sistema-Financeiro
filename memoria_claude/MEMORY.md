@@ -1,0 +1,3 @@
+- [Documentar no Obsidian](feedback_obsidian_documentation.md) — sempre documentar testes/achados em markdown no vault C:\Claude\Claude
+- [Sistema Financeiro](project_sistema_financeiro.md) — app FastAPI+SQLite do Renan no vault; ambiente de teste Python montado nesta máquina, fluxo de trabalho e roteiro
+- [Git repo Financeiro](feedback_git_repo_financeiro.md) — após cada mudança: documentar no Obsidian E dar push no repo GitHub Renanzin15/Sistema-Financeiro (privado)
