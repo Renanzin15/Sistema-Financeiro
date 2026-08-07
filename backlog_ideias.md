@@ -1,6 +1,6 @@
 # Backlog de ideias — Sistema de Orçamento
 
-> ✅ **STATUS (06/08/2026 — Etapa 20):** IMPLEMENTADOS e testados: **M1, M2, M4, E1, E2, E3(OFX/CSV), E4, E5, E6, E8, E9**. Ver detalhes no [[diario_projeto_financeiro]] (Etapa 20). **Falta:** E3-PDF (precisa `pdfplumber`), M2-investimento automático (só rendimento manual feito), e a fase online (segurança, Supabase, hospedagem, **E7 Web Push**, Cold Start) — ver [[plano_online_gratuito]].
+> ✅ **STATUS (07/08/2026 — Etapa 21):** IMPLEMENTADOS e testados: **M1, M2, M4, E1, E2, E3(OFX/CSV), E4, E5, E6, E8, E9**, e agora também o **leitor de conta por foto/PDF (OCR local)** — ver [[estudo_ocr_conta_imagem]] e Etapa 21 no [[diario_projeto_financeiro]]. **Falta:** E3-PDF **de extrato bancário** (parsing de PDF pro importador de OFX/CSV — precisa `pdfplumber`, é diferente do leitor de conta por OCR acima), M2-investimento automático (só rendimento manual feito), e a fase online (segurança, Supabase, hospedagem, **E7 Web Push**, Cold Start) — ver [[plano_online_gratuito]].
 
 > Origem: documento `Sistema de Orçamento.docx` (Desktop do Renan), analisado em **06/08/2026**. Contém texto + 4 prints das telas com marcações em vermelho nos espaços vazios. Este arquivo consolida TUDO que o documento pede, separado por: **manutenção** (ajustes no que já existe), **expansões futuras** (features novas) e **online/segurança** (já detalhado em [[plano_online_gratuito]]). Regra de ouro do projeto: um bloco por vez, testar, backup do `financeiro.db` antes de mudança de estrutura (⚠).
 

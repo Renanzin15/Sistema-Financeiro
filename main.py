@@ -7,8 +7,33 @@ import sqlite3
 import re
 import csv
 import io
+import os
+import base64
 import bcrypt
 from jose import jwt, JWTError
+
+# leitor de conta por imagem/PDF (OCR) — dependência OPCIONAL.
+# se pytesseract/Pillow/PyMuPDF não estiverem instalados, o app inteiro continua
+# funcionando normalmente; só a rota /importar/conta-imagem fica indisponível.
+# ver estudo_ocr_conta_imagem.md para instruções de instalação.
+try:
+    import pytesseract
+    from PIL import Image, ImageOps
+    import pymupdf as fitz  # PyMuPDF; "pymupdf" é o nome novo do pacote, "fitz" é só o alias de import
+    OCR_DISPONIVEL = True
+except ImportError:
+    OCR_DISPONIVEL = False
+
+# caminho do executável do Tesseract e (opcional) pasta de idiomas alternativa.
+# na instalação padrão (winget UB-Mannheim.TesseractOCR) fica em Program Files e já
+# inclui os .traineddata na própria pasta — TESSDATA_DIR só é necessário se os
+# idiomas estiverem em outro lugar (ex.: sem permissão de admin para gravar em
+# Program Files\Tesseract-OCR\tessdata, como aconteceu no ambiente de teste desta máquina).
+if OCR_DISPONIVEL:
+    pytesseract.pytesseract.tesseract_cmd = os.environ.get(
+        "TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    )
+    TESSDATA_DIR = os.environ.get("TESSDATA_DIR")  # ex.: D:\Claude\ambiente-teste-financeiro\tessdata
 
 # chave secreta para assinar os tokens de sessão.
 # em uso real, isto deveria vir de uma variável de ambiente, não ficar no código.
@@ -454,6 +479,123 @@ def parse_csv(texto, caixinhas):
 
 
 # ========================================================
+# LEITOR DE CONTA POR IMAGEM/PDF (OCR) — sub-item de E3, ver estudo_ocr_conta_imagem.md.
+# Lê a imagem/PDF, extrai texto (OCR local via Tesseract, sem nuvem/IA) e tenta achar
+# valor + vencimento por regex. Igual ao importador de extrato: NUNCA grava sozinho,
+# só devolve uma prévia editável — quem cria a conta de fato é o /contas já existente.
+# ========================================================
+
+TAMANHO_MAX_ARQUIVO_OCR = 15 * 1024 * 1024  # 15 MB — evita foto gigante travando o OCR
+
+def _config_tesseract():
+    # pytesseract passa este texto direto pro subprocesso (sem shell), então NÃO envolver
+    # o caminho em aspas aqui — isso faria as aspas virarem parte literal do caminho.
+    if TESSDATA_DIR:
+        return f"--tessdata-dir {TESSDATA_DIR}"
+    return ""
+
+def _preprocessar_imagem(img):
+    """Escala de cinza + auto-contraste; amplia foto pequena. Ajuda bastante o OCR,
+    mas não substitui uma foto bem tirada (reta, sem sombra) — ver 'Realidade' no estudo."""
+    img = img.convert("L")
+    img = ImageOps.autocontrast(img)
+    if img.width < 1000:
+        fator = 1600 / max(img.width, 1)
+        img = img.resize((int(img.width * fator), int(img.height * fator)), Image.LANCZOS)
+    return img
+
+def _ocr_imagem_pil(img):
+    img = _preprocessar_imagem(img)
+    return pytesseract.image_to_string(img, lang="por+eng", config=_config_tesseract())
+
+def ocr_texto_imagem(bytes_imagem):
+    img = Image.open(io.BytesIO(bytes_imagem))
+    return _ocr_imagem_pil(img)
+
+def ocr_texto_pdf(bytes_pdf):
+    """PDF 'de texto' (a maioria de boletos gerados por sistema): lê direto, sem OCR.
+    PDF escaneado (foto virou PDF): a página não tem texto -> renderiza como imagem e faz OCR."""
+    doc = fitz.open(stream=bytes_pdf, filetype="pdf")
+    partes = []
+    for pagina in doc:
+        texto = pagina.get_text().strip()
+        if len(texto) >= 30:
+            partes.append(texto)
+        else:
+            pix = pagina.get_pixmap(dpi=300)
+            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            partes.append(_ocr_imagem_pil(img))
+    doc.close()
+    return "\n".join(partes)
+
+# termos de contexto que aumentam a confiança de que aquele número/data é o que queremos
+_TERMOS_VALOR = ["valor a pagar", "total a pagar", "valor cobrado", "valor do documento", "total geral", "valor total", "total"]
+_TERMOS_VENCIMENTO = ["vencimento", "vence em", "pagamento até", "pague até", "válido até", "data limite"]
+
+# nomes prováveis pela palavra encontrada no texto (mesma ideia do MAPA_PALAVRAS do importador de extrato)
+_MAPA_NOME_CONTA = {
+    "energia": "Energia", "eletrica": "Energia", "elétrica": "Energia", "enel": "Energia", "cpfl": "Energia", "light": "Energia",
+    "água": "Água", "agua": "Água", "saneamento": "Água", "sabesp": "Água",
+    "internet": "Internet", "banda larga": "Internet", "fibra": "Internet",
+    "telefone": "Telefone", "celular": "Telefone",
+    "condomínio": "Condomínio", "condominio": "Condomínio",
+    "aluguel": "Aluguel",
+    "cartão": "Cartão", "cartao": "Cartão", "fatura": "Cartão",
+    "gás": "Gás", "gas": "Gás", "comgas": "Gás",
+}
+
+def _melhor_valor(texto):
+    """Acha 'R$ x,xx' no texto; prioriza o que estiver perto (60 chars antes) de um termo
+    tipo 'valor a pagar'/'total'. Sem contexto, usa o maior valor encontrado (heurística:
+    o total costuma ser o maior número monetário da conta)."""
+    candidatos = []
+    for m in re.finditer(r"(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})", texto):
+        valor = _num_br(m.group(1))
+        if valor is None or valor <= 0:
+            continue
+        contexto = texto[max(0, m.start() - 60):m.start()].lower()
+        prioridade = any(t in contexto for t in _TERMOS_VALOR)
+        candidatos.append((prioridade, valor, m.group(1)))
+    if not candidatos:
+        return None
+    com_contexto = [c for c in candidatos if c[0]]
+    escolhidos = com_contexto if com_contexto else candidatos
+    return max(escolhidos, key=lambda c: c[1])[1]
+
+def _melhor_vencimento(texto):
+    """Acha datas dd/mm/aaaa; prioriza a que estiver perto de 'vencimento'/'vence em' etc."""
+    candidatos = []
+    for m in re.finditer(r"\b(\d{2}/\d{2}/\d{4})\b", texto):
+        iso = _data_iso(m.group(1))
+        if iso == "?":
+            continue
+        contexto = texto[max(0, m.start() - 40):m.start()].lower()
+        prioridade = any(t in contexto for t in _TERMOS_VENCIMENTO)
+        candidatos.append((prioridade, m.start(), iso))
+    if not candidatos:
+        return "?"
+    com_contexto = [c for c in candidatos if c[0]]
+    escolhidos = com_contexto if com_contexto else candidatos
+    return min(escolhidos, key=lambda c: c[1])[2]  # a primeira ocorrência, entre as prioritárias
+
+def _sugerir_nome_conta(texto):
+    t = texto.lower()
+    for palavra, nome in _MAPA_NOME_CONTA.items():
+        if palavra in t:
+            return nome
+    return "Conta"
+
+def extrair_conta(texto):
+    valor = _melhor_valor(texto)
+    return {
+        "nome": _sugerir_nome_conta(texto),
+        "valor_centavos": round(valor * 100) if valor else 0,
+        "vencimento": _melhor_vencimento(texto),
+        "texto_bruto": texto.strip()[:4000],  # limitado pra não inchar a resposta
+    }
+
+
+# ========================================================
 # MODELOS (o formato do que chega em cada rota) — todos juntos
 # ========================================================
 
@@ -529,6 +671,10 @@ class WrappedVisto(BaseModel):
 class ImportarAnalise(BaseModel):
     conteudo: str
     tipo_arquivo: str   # 'ofx' ou 'csv'
+
+class ImportarContaImagem(BaseModel):
+    conteudo: str        # data URL completa (data:image/...;base64,XXXX ou data:application/pdf;base64,XXXX)
+    tipo_arquivo: str    # 'imagem' ou 'pdf'
 
 class LinhaImport(BaseModel):
     descricao: str
@@ -1313,6 +1459,48 @@ def importar_analisar(item: ImportarAnalise, _=Depends(exigir_login)):
     else:
         linhas = parse_csv(item.conteudo, caixinhas)
     return {"linhas": linhas, "total": len(linhas)}
+
+@app.post("/importar/conta-imagem")
+def importar_conta_imagem(item: ImportarContaImagem, _=Depends(exigir_login)):
+    """Lê uma foto/print ou PDF de conta e devolve uma prévia (nome, valor, vencimento)
+    pra o usuário conferir/corrigir antes de criar a conta de verdade via POST /contas."""
+    if not OCR_DISPONIVEL:
+        raise HTTPException(
+            status_code=500,
+            detail="Leitor de conta por imagem não está instalado neste servidor. "
+                    "Rode: pip install pytesseract Pillow PyMuPDF, e instale o Tesseract "
+                    "(ver estudo_ocr_conta_imagem.md)."
+        )
+    conteudo = item.conteudo
+    if "," in conteudo and conteudo.strip().startswith("data:"):
+        conteudo = conteudo.split(",", 1)[1]  # tira o prefixo "data:...;base64,"
+    try:
+        dados = base64.b64decode(conteudo)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Arquivo inválido (falha ao decodificar).")
+    if len(dados) > TAMANHO_MAX_ARQUIVO_OCR:
+        raise HTTPException(status_code=400, detail="Arquivo grande demais (máximo 15 MB).")
+    if not dados:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+
+    try:
+        if item.tipo_arquivo == "pdf":
+            texto = ocr_texto_pdf(dados)
+        else:
+            texto = ocr_texto_imagem(dados)
+    except pytesseract.TesseractNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="Tesseract não encontrado no caminho configurado. Verifique a instalação "
+                    "(ver estudo_ocr_conta_imagem.md) ou defina a variável de ambiente TESSERACT_CMD."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Não consegui ler o arquivo: {e}")
+
+    if not texto.strip():
+        raise HTTPException(status_code=400, detail="Não consegui ler nenhum texto nesse arquivo. Tente uma foto mais nítida.")
+
+    return extrair_conta(texto)
 
 @app.post("/importar/confirmar")
 def importar_confirmar(item: ImportarConfirmar, _=Depends(exigir_login)):

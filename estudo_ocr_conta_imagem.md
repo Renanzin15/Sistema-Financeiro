@@ -5,6 +5,13 @@
 > offline e de graça. Decisão do Renan (06/08/2026): estudar o **OCR local**; IA de visão por ora não.
 > Relacionado: [[backlog_ideias]] (E3), [[plano_online_gratuito]].
 
+> ## ✅ IMPLEMENTADO (07/08/2026)
+> As 4 decisões abaixo foram respondidas pelo Renan e a Fase 1 **+** Fase 3 (PDF) foram construídas
+> e testadas de ponta a ponta — ver seção "Decisões pro Renan" (respostas) e a Etapa 21 do
+> `diario_projeto_financeiro.md` para todos os detalhes técnicos, testes e um bug de configuração do
+> Tesseract encontrado e corrigido no caminho. Só ficaram de fora (Fase 2 futura, opcional):
+> decodificar a **linha digitável** como segunda fonte, e **deskew** de foto torta.
+
 ---
 
 ## ✅ Prova de conceito FEITA nesta máquina (06/08/2026)
@@ -96,12 +103,16 @@ No código, apontar o caminho: `pytesseract.pytesseract.tesseract_cmd = r"C:\Pro
 
 ---
 
-## Decisões pro Renan
+## Decisões pro Renan — ✅ respondidas em 07/08/2026
 
 1. **Vale instalar o Tesseract** na máquina dele (é um programa, ~100 MB)? Se sim, sigo pra Fase 1.
+   → **Sim.** Instalado nesta máquina via winget.
 2. **Português** (`por`) ou só inglês? (número/data vai bem só com inglês; texto acentuado melhora com `por`.)
+   → **Inglês + Português.**
 3. Começar por **imagem** ou já mirar **PDF** também?
+   → **Imagem + PDF já** (não só a Fase 1 do plano abaixo — PDF de texto e PDF escaneado com fallback de OCR).
 4. A foto vira **conta** (tela Dívidas), certo? (não é lançamento do histórico) — confirmar.
+   → **Confirmado.** Reaproveita o `POST /contas` já existente.
 
 > Nota: a POC provou que a canalização funciona. O trabalho real da Fase 2 é lidar com **foto ruim** —
 > é ali que mora a dificuldade, não no OCR em si.

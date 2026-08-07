@@ -5,7 +5,11 @@ bcrypt
 python-jose[cryptography]
 pydantic
 
-# --- Opcional (só se for usar o leitor de conta por imagem / OCR) ---
-# pytesseract
-# Pillow
-# (o OCR também exige o programa Tesseract instalado à parte — ver estudo_ocr_conta_imagem.md)
+# --- Opcional (só necessário pro leitor de conta por imagem / PDF, o OCR) ---
+# Sem isso instalado o app roda normal, só a rota /importar/conta-imagem fica indisponível.
+pytesseract
+Pillow
+PyMuPDF
+# Também exige o programa Tesseract instalado à parte (winget install -e --id UB-Mannheim.TesseractOCR)
+# e, se quiser reconhecer rótulos em português, o pacote de idioma por.traineddata.
+# Ver estudo_ocr_conta_imagem.md para detalhes e troubleshooting.

@@ -524,6 +524,16 @@
       </div>
       <div id="imp-preview"></div>
     </div>
+
+    <div class="painel" style="margin-top:16px">
+      <h2>Ler conta por foto ou PDF 📷</h2>
+      <div class="sub" style="margin-bottom:14px">Tire uma foto (ou solte um PDF) de uma conta/boleto e o sistema tenta ler <b>valor</b> e <b>vencimento</b> sozinho, tudo local (sem nuvem/IA). Sempre <b>confira os campos antes de cadastrar</b> — foto real pode sair torta na leitura.</div>
+      <input type="file" id="ocr-arquivo" accept="image/*,.pdf" style="display:none" onchange="ocrArquivoSelecionado(event)">
+      <div id="ocr-drop" onclick="document.getElementById('ocr-arquivo').click()" style="border:2px dashed var(--borda);border-radius:14px;padding:44px 20px;text-align:center;cursor:pointer;color:var(--texto2);transition:all 0.15s">
+        Clique aqui ou arraste uma <b>foto</b> ou <b>PDF</b> da conta
+      </div>
+      <div id="ocr-preview"></div>
+    </div>
   </section>
 
   <!-- REGRAS DE SALÁRIO (E4) -->
@@ -1843,6 +1853,73 @@ async function confirmarImport() {
   } catch (e) { aviso(e.message, "erro"); }
 }
 
+// ===== Leitor de conta por foto/PDF (OCR local, sem nuvem/IA) =====
+let ocrPrevia = null;
+
+function ocrArquivoSelecionado(ev) {
+  const f = ev.target.files[0];
+  if (f) lerArquivoOcr(f);
+  ev.target.value = "";   // permite re-selecionar o mesmo arquivo
+}
+
+function lerArquivoOcr(file) {
+  const nome = (file.name || "").toLowerCase();
+  const tipo = (nome.endsWith(".pdf") || file.type === "application/pdf") ? "pdf" : "imagem";
+  const el = document.getElementById("ocr-preview");
+  el.innerHTML = '<div class="sub" style="margin-top:14px">Lendo o arquivo (OCR pode levar alguns segundos)...</div>';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const resp = await pedir("/importar/conta-imagem", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conteudo: reader.result, tipo_arquivo: tipo }) });
+      ocrPrevia = resp;
+      renderOcrPreview();
+    } catch (e) { el.innerHTML = ""; aviso(e.message, "erro"); }
+  };
+  reader.onerror = () => { el.innerHTML = ""; aviso("Não consegui ler o arquivo.", "erro"); };
+  reader.readAsDataURL(file);   // dá um "data:...;base64,XXXX" — o back-end decodifica
+}
+
+function renderOcrPreview() {
+  const el = document.getElementById("ocr-preview");
+  if (!ocrPrevia) { el.innerHTML = ""; return; }
+  const valorInicial = ocrPrevia.valor_centavos ? (ocrPrevia.valor_centavos / 100).toFixed(2) : "";
+  const vencInicial = ocrPrevia.vencimento && ocrPrevia.vencimento !== "?" ? ocrPrevia.vencimento : "";
+  el.innerHTML = `
+    <div class="sub" style="margin:18px 0 10px">Prévia — <b>confira e corrija</b> antes de cadastrar (foto real pode errar):</div>
+    <div class="campo-duplo">
+      <div class="campo"><label>Nome</label><input id="ocr-nome" value="${(ocrPrevia.nome || "").replace(/"/g, "&quot;")}"></div>
+      <div class="campo"><label>Valor (R$)</label><input id="ocr-valor" type="number" step="0.01" value="${valorInicial}" placeholder="0,00"></div>
+    </div>
+    <div class="campo-duplo">
+      <div class="campo"><label>Vencimento</label><input id="ocr-venc" type="date" value="${vencInicial}"></div>
+      <div class="campo"><label>Categoria</label>
+        <select id="ocr-tipo"><option value="fixa">Conta fixa</option><option value="cartao">Cartão</option><option value="outro">Outros</option></select>
+      </div>
+    </div>
+    <button class="acao" onclick="confirmarOcrConta()">Cadastrar como conta</button>
+    <details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Ver texto lido (bruto)</summary>
+      <div class="sub" style="white-space:pre-wrap;margin-top:8px;max-height:220px;overflow:auto;font-size:11px">${(ocrPrevia.texto_bruto || "").replace(/</g, "&lt;")}</div>
+    </details>`;
+}
+
+async function confirmarOcrConta() {
+  const nome = document.getElementById("ocr-nome").value.trim();
+  const valor = document.getElementById("ocr-valor").value;
+  const venc = document.getElementById("ocr-venc").value;
+  const tipo = document.getElementById("ocr-tipo").value;
+  if (!nome) return aviso("Preencha o nome.", "erro");
+  if (!valor || parseFloat(valor) <= 0) return aviso("Preencha o valor.", "erro");
+  if (!venc) return aviso("Preencha o vencimento.", "erro");
+  try {
+    await pedir("/contas", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome, valor_centavos: paraCentavos(valor), vencimento: venc, tipo, tipo_conta: "simples" }) });
+    ocrPrevia = null;
+    document.getElementById("ocr-preview").innerHTML = "";
+    aviso("Conta cadastrada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
 // troca de telas pelo menu lateral
 const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", categorias: "Categorias", regras: "Regras", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
@@ -1919,6 +1996,20 @@ enterSalva("s-valor", tirarSaldoLivre);
     drop.style.borderColor = "var(--borda)"; drop.style.color = "var(--texto2)";
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
     if (f) lerArquivoImport(f);
+  });
+})();
+
+// arrastar-e-soltar a foto/PDF da conta na área tracejada do leitor por OCR
+(function () {
+  const drop = document.getElementById("ocr-drop");
+  if (!drop) return;
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.style.borderColor = "var(--roxo)"; drop.style.color = "var(--roxo-claro)"; });
+  drop.addEventListener("dragleave", () => { drop.style.borderColor = "var(--borda)"; drop.style.color = "var(--texto2)"; });
+  drop.addEventListener("drop", e => {
+    e.preventDefault();
+    drop.style.borderColor = "var(--borda)"; drop.style.color = "var(--texto2)";
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) lerArquivoOcr(f);
   });
 })();
 

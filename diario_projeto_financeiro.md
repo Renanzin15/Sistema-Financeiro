@@ -1142,3 +1142,63 @@ UMA cópia só como fonte pra não rodar a versão errada.
 cobrindo os blocos novos (migração, rendimento, regras de salário, E2 fatura, E3 parsers, E6 wrapped) +
 as validações. Fluxo combinado com o Renan: **toda mudança → documentar no Obsidian → push no GitHub**
 ([[feedback-git-repo-financeiro]]). Repo: `Renanzin15/Sistema-Financeiro` (privado).
+
+## Etapa 21 — Leitor de conta por foto/PDF (OCR local) — implementado (07/08/2026)
+
+Depois do estudo (`estudo_ocr_conta_imagem.md`, POC feita numa sessão/máquina anterior), o Renan
+confirmou as 4 decisões pendentes: instalar o Tesseract, idioma **inglês + português**, escopo
+**imagem + PDF já** (não só Fase 1), e a conta lida vira registro em **Dívidas** (via `POST /contas`
+já existente) — nunca lançamento direto.
+
+**Instalação nesta máquina:** Tesseract 5.4.0 via `winget install -e --id UB-Mannheim.TesseractOCR`
+(`C:\Program Files\Tesseract-OCR\`). Idioma `por.traineddata` baixado à parte (o shell desta sessão
+não tem permissão de admin pra gravar em `Program Files\Tesseract-OCR\tessdata`) e colocado numa
+pasta própria; a variável de ambiente opcional `TESSDATA_DIR` no `main.py` aponta pra lá só quando
+necessário — **na máquina real do Renan (com admin), não é preciso definir nada**, o Tesseract já
+acha os idiomas na pasta padrão se `por.traineddata` for colocado lá.
+
+**Back-end (`main.py`):** import de `pytesseract`/`Pillow`/`PyMuPDF` é **opcional e protegido**
+(`try/except ImportError` → `OCR_DISPONIVEL`); sem essas libs instaladas o app inteiro continua
+funcionando normal, só a rota nova fica indisponível (mensagem clara de erro). Funções:
+- `ocr_texto_imagem`/`_preprocessar_imagem`: escala de cinza + auto-contraste + upscale se a foto
+  for pequena (< 1000px) — melhora bastante o OCR sem exigir deskew (isso ficou pra uma Fase 2 futura).
+- `ocr_texto_pdf`: usa PyMuPDF; se a página **tem** camada de texto, lê direto (rápido, sem OCR —
+  cobre a maioria dos boletos gerados por sistema); se **não tem** (PDF escaneado/foto virou PDF),
+  renderiza a página como imagem (300 DPI) e cai no OCR.
+- `extrair_conta`/`_melhor_valor`/`_melhor_vencimento`: regex com **contexto** — um valor "R$ x,xx"
+  perto de "valor a pagar"/"total" pesa mais que um solto; mesma ideia pra data perto de "vencimento".
+  Sem contexto, cai no maior valor / primeira data encontrados (heurística de fallback).
+  `_sugerir_nome_conta` chuta um nome (Energia/Água/Internet/...) pela palavra-chave no texto lido.
+- Rota `POST /importar/conta-imagem`: recebe a imagem/PDF em base64 (data URL), roda o pipeline,
+  **devolve só a prévia** (nome, valor, vencimento, texto bruto) — não grava nada sozinho, igual ao
+  importador de extrato. Limite de 15 MB por arquivo.
+
+**Front-end (`index.html`):** novo painel "Ler conta por foto ou PDF 📷" na tela Importar, mesmo
+padrão visual/drag-and-drop do bloco de OFX/CSV. Prévia com campos **editáveis** (nome/valor/
+vencimento/categoria) + `<details>` colapsável com o texto bruto lido (transparência/debug) + botão
+"Cadastrar como conta" que reaproveita o `POST /contas` já existente — nenhuma rota nova de gravação.
+
+**Testado (ambiente isolado desta máquina, porta 8199), os 3 caminhos batendo exatamente com o
+esperado (R$ 187,45 / vencimento 20/08/2026):**
+1. Imagem PNG gerada com texto sintético → OCR → extração correta.
+2. PDF com camada de texto (gerado com PyMuPDF) → leitura direta, sem OCR → correta.
+3. PDF **sem** camada de texto, só a imagem embutida (simula boleto escaneado) → cai no fallback
+   de OCR → correta.
+Testado também pela UI real no navegador (login, tela Importar, bloco novo renderizando certo).
+**Não** testado o "arrastar arquivo de verdade no navegador" (mecanismo de automação do teste não
+consegue simular upload de arquivo real) — mas usa a mesma `FileReader.readAsDataURL` já comprovada
+no importador de OFX/CSV, risco baixo.
+
+**Bug encontrado e corrigido durante o teste:** o `pytesseract` passa a string de `config` **direto**
+pro subprocesso do Tesseract (sem shell) — colocar o caminho do `--tessdata-dir` entre aspas fazia as
+aspas virarem **parte literal** do caminho e o Tesseract não achava a pasta. Correção: não envolver
+o caminho em aspas (só seria necessário se o caminho tivesse espaço, o que não é o caso aqui).
+
+**Pendências que ficaram de fora (documentadas no próprio `estudo_ocr_conta_imagem.md`):**
+"linha digitável" como segunda fonte de valor/vencimento (mencionada no estudo como ideia pra
+explorar, mais confiável que ler o texto solto) e deskew de foto torta — ambas de Fase 2, não
+bloqueiam o uso normal (foto reta/print funciona bem).
+
+Dependências agora em `requirements.txt` (seção opcional, descomentada): `pytesseract`, `Pillow`,
+`PyMuPDF`. Segue o fluxo combinado: documentar no Obsidian → push no GitHub
+([[feedback-git-repo-financeiro]]).
