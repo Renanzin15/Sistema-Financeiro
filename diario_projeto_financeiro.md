@@ -1130,6 +1130,13 @@ avulso quando não há saldo (deixei de fora pra não arriscar quebrar o importa
 direto). Os inserts diretos (transferir, pagar_conta, importar, regras) não passam por essas validações
 de propósito.
 
+**Troubleshooting (06/08/2026) — login não funcionava na máquina do Renan:** o log mostrava só
+`GET /app 200` + `GET /favicon.ico 404` (favicon 404 é normal, ignorar) e **nenhuma** chamada
+`/auth/...` — sinal de que o JS do `index.html` não rodava. Causa real: o `git pull` foi puxado
+pra uma **pasta errada**, então o servidor subia uma cópia antiga/incompleta do `index.html`.
+**Lição:** a pasta onde se roda o `uvicorn` tem que ser exatamente a que o git atualiza — manter
+UMA cópia só como fonte pra não rodar a versão errada.
+
 **Documentação atualizada e versionada:** `documentacao_tecnica.md` reescrita pro estado atual;
 `guia_projeto_financeiro.md` virou **manual do usuário** das 8 telas; `codigo_comentado.md` reescrito
 cobrindo os blocos novos (migração, rendimento, regras de salário, E2 fatura, E3 parsers, E6 wrapped) +
