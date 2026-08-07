@@ -1202,3 +1202,35 @@ bloqueiam o uso normal (foto reta/print funciona bem).
 Dependências agora em `requirements.txt` (seção opcional, descomentada): `pytesseract`, `Pillow`,
 `PyMuPDF`. Segue o fluxo combinado: documentar no Obsidian → push no GitHub
 ([[feedback-git-repo-financeiro]]).
+
+### Etapa 21.1 — Deploy na pasta de execução + config de idioma robusta (07/08/2026)
+
+Descobri que nesta máquina o app **roda de fato** a partir de `D:\PROGRAMAÇÃO\Financeiro\` (o
+`MeuOrçamento.bat` faz `cd` pra lá e sobe `uvicorn main:app`), e que existem **dois clones git** do
+projeto na mesma máquina: o do vault (`D:\Obsidian\Pessoal\Sistema Financeiro\`, onde eu edito) e um
+segundo dentro de `D:\PROGRAMAÇÃO\Financeiro\Sistema-Financeiro\`. A raiz de execução tem cópias de
+`main.py`/`index.html` alimentadas por esse segundo clone. **Corrigi minha memória** (antes eu achava
+que a pasta de execução ficava em outra máquina).
+
+**Fluxo de deploy que usei (e que vale repetir):** `git pull` no clone
+`D:\PROGRAMAÇÃO\Financeiro\Sistema-Financeiro\` → copiar `main.py`/`index.html`/`requirements.txt`
+pra raiz `D:\PROGRAMAÇÃO\Financeiro\`. **Nunca** copiar/sobrescrever o `financeiro.db` da raiz (dados
+reais + hash de senha). Conferi por hash (md5) que o código nos 3 lugares ficou idêntico.
+
+**Instalei as libs de OCR no Python global** (3.13.3, o que o `.bat` usa): `pytesseract Pillow PyMuPDF`.
+
+**Config de idioma agora é auto-detectada e à prova de falha** (antes dependia de setar `TESSDATA_DIR`
+na mão, o que não acontece quando o app sobe pelo `.bat`):
+- A pasta de idiomas é resolvida na ordem: env `TESSDATA_DIR` → **pasta `tessdata` ao lado do
+  `main.py`** → pasta padrão do Tesseract. Assim os idiomas "viajam junto" com o app, sem precisar de
+  admin pra gravar em `Program Files`. Coloquei `eng.traineddata`+`por.traineddata` em
+  `D:\PROGRAMAÇÃO\Financeiro\tessdata\`.
+- Nova função `_idiomas_ocr()`: usa `por+eng` **só se** o `por.traineddata` existir; senão cai pra
+  `eng` sozinho (números e datas, que é o que importa, saem bem só com inglês). Evita quebrar o OCR
+  numa máquina que só tenha o inglês.
+- `tessdata/` e `*.traineddata` entraram no `.gitignore` (são ~19 MB, cada máquina baixa o seu).
+
+**Testado:** OCR rodando com o **Python global** apontando pra pasta `tessdata` real → leu R$ 187,45
+e vencimento 20/08/2026 certos; e uma simulação de startup da pasta de execução confirmou
+`OCR_DISPONIVEL=True`, idiomas `por+eng`, `tesseract_cmd` correto — tudo **sem tocar no `financeiro.db`
+real** (testes em cópia isolada, porque `criar_tabelas()` roda no import e abriria o banco do cwd).

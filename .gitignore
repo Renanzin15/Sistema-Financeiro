@@ -16,6 +16,12 @@ __pycache__/
 venv/
 env/
 
+# === Idiomas do OCR (Tesseract) — arquivos grandes (~19 MB), baixados à parte ===
+# ver estudo_ocr_conta_imagem.md / diario (Etapa 21). Não versionar: cada máquina
+# baixa o por.traineddata e coloca numa pasta "tessdata" ao lado do main.py.
+tessdata/
+*.traineddata
+
 # === Sistema operacional / editores ===
 .DS_Store
 Thumbs.db

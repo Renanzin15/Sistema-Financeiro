@@ -24,16 +24,23 @@ try:
 except ImportError:
     OCR_DISPONIVEL = False
 
-# caminho do executável do Tesseract e (opcional) pasta de idiomas alternativa.
-# na instalação padrão (winget UB-Mannheim.TesseractOCR) fica em Program Files e já
-# inclui os .traineddata na própria pasta — TESSDATA_DIR só é necessário se os
-# idiomas estiverem em outro lugar (ex.: sem permissão de admin para gravar em
-# Program Files\Tesseract-OCR\tessdata, como aconteceu no ambiente de teste desta máquina).
+# caminho do executável do Tesseract e pasta de idiomas (.traineddata).
+# Ordem de resolução da pasta de idiomas (a primeira que existir vence):
+#   1) variável de ambiente TESSDATA_DIR (se o usuário quiser forçar um caminho);
+#   2) uma pasta "tessdata" ao lado deste main.py (jeito portável: os idiomas viajam
+#      junto com o app, sem precisar de admin pra gravar em Program Files);
+#   3) None -> o Tesseract usa a pasta padrão da própria instalação (Program Files\
+#      Tesseract-OCR\tessdata), que já vem com o inglês.
+# Isso resolve o caso de não ter permissão de admin pra pôr o por.traineddata na
+# pasta padrão do Tesseract (aconteceu nesta máquina).
 if OCR_DISPONIVEL:
     pytesseract.pytesseract.tesseract_cmd = os.environ.get(
         "TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe"
     )
-    TESSDATA_DIR = os.environ.get("TESSDATA_DIR")  # ex.: D:\Claude\ambiente-teste-financeiro\tessdata
+    _tessdata_local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tessdata")
+    TESSDATA_DIR = os.environ.get("TESSDATA_DIR") or (
+        _tessdata_local if os.path.isdir(_tessdata_local) else None
+    )
 
 # chave secreta para assinar os tokens de sessão.
 # em uso real, isto deveria vir de uma variável de ambiente, não ficar no código.
@@ -494,6 +501,17 @@ def _config_tesseract():
         return f"--tessdata-dir {TESSDATA_DIR}"
     return ""
 
+def _idiomas_ocr():
+    """'por+eng' se o português estiver disponível; senão cai pra 'eng' sozinho.
+    Evita quebrar o OCR quando só o inglês (que já vem com o Tesseract) está instalado —
+    números e datas, que é o que mais importa aqui, saem bem só com inglês."""
+    pasta = TESSDATA_DIR or os.path.join(
+        os.path.dirname(pytesseract.pytesseract.tesseract_cmd), "tessdata"
+    )
+    if os.path.isfile(os.path.join(pasta, "por.traineddata")):
+        return "por+eng"
+    return "eng"
+
 def _preprocessar_imagem(img):
     """Escala de cinza + auto-contraste; amplia foto pequena. Ajuda bastante o OCR,
     mas não substitui uma foto bem tirada (reta, sem sombra) — ver 'Realidade' no estudo."""
@@ -506,7 +524,7 @@ def _preprocessar_imagem(img):
 
 def _ocr_imagem_pil(img):
     img = _preprocessar_imagem(img)
-    return pytesseract.image_to_string(img, lang="por+eng", config=_config_tesseract())
+    return pytesseract.image_to_string(img, lang=_idiomas_ocr(), config=_config_tesseract())
 
 def ocr_texto_imagem(bytes_imagem):
     img = Image.open(io.BytesIO(bytes_imagem))
