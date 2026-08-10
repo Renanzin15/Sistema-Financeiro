@@ -275,11 +275,53 @@ def migrar():
 
 # ---- autenticação: Supabase Auth ----
 # O front faz login no Supabase (e-mail/senha; signups desativados no painel) e envia o
-# access_token (JWT) no header Authorization. Aqui a gente VERIFICA esse token — assinado
-# pelo Supabase com a JWT Secret (HS256) — e extrai o `sub` = UUID do usuário. Todo dado
-# é isolado por esse user_id.
+# access_token (JWT) no header Authorization. Aqui a gente VERIFICA esse token e extrai o
+# `sub` = UUID do usuário. Projetos novos do Supabase assinam com ES256 (chave assimétrica,
+# publicada no JWKS); os antigos usam HS256 (a JWT Secret). Suportamos os dois.
 
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
+
+# JWKS do Supabase (chaves públicas ES256) — buscado 1x e cacheado.
+_jwks_cache = None
+def _supabase_jwks():
+    global _jwks_cache
+    if _jwks_cache is None and SUPABASE_URL:
+        import urllib.request, json as _json
+        try:
+            req = urllib.request.Request(
+                SUPABASE_URL + "/auth/v1/.well-known/jwks.json",
+                headers={"apikey": SUPABASE_PUBLISHABLE_KEY} if SUPABASE_PUBLISHABLE_KEY else {},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                _jwks_cache = _json.loads(r.read().decode())
+        except Exception:
+            _jwks_cache = None
+    return _jwks_cache
+
+def _verificar_token(tok):
+    """Verifica o access_token do Supabase: tenta ES256 (JWKS) e cai pra HS256 (JWT Secret)."""
+    global _jwks_cache
+    try:
+        kid = jwt.get_unverified_header(tok).get("kid")
+    except Exception:
+        kid = None
+    for tentativa in (1, 2):
+        jwks = _supabase_jwks()
+        if jwks:
+            keys = jwks.get("keys", [])
+            chave = next((k for k in keys if k.get("kid") == kid), None) or (keys[0] if keys else None)
+            if chave:
+                try:
+                    return jwt.decode(tok, chave, algorithms=["ES256"], audience="authenticated")
+                except JWTError:
+                    pass
+        if tentativa == 1:
+            _jwks_cache = None  # a chave pode ter rotacionado; recarrega o JWKS uma vez
+    if SUPABASE_JWT_SECRET:
+        return jwt.decode(tok, SUPABASE_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+    raise JWTError("nenhuma chave disponível para verificar o token")
 
 _usuarios_prontos = set()  # cache dos usuários que já receberam suas categorias padrão
 
@@ -303,14 +345,9 @@ def _garantir_usuario(user_id):
 def exigir_login(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
     if cred is None:
         raise HTTPException(status_code=401, detail="Não autenticado.")
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=500, detail="Servidor sem SUPABASE_JWT_SECRET configurada.")
     try:
-        dados = jwt.decode(
-            cred.credentials, SUPABASE_JWT_SECRET,
-            algorithms=["HS256"], audience="authenticated",
-        )
-    except JWTError:
+        dados = _verificar_token(cred.credentials)
+    except Exception:
         raise HTTPException(status_code=401, detail="Sessão inválida ou expirada.")
     user_id = dados.get("sub")
     if not user_id:

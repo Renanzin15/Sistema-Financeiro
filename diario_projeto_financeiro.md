@@ -1321,3 +1321,22 @@ schema no Supabase e copia tudo **carimbando `user_id = <SEU UUID>`** em cada li
 `SUPABASE_JWT_SECRET` (valores no `.env`/[[CREDENCIAIS_SUPABASE.local]]); **criar seu usuário** em
 Authentication → Add user (signups desativados); rodar a **migração** com o seu UUID. Sem env vars o
 login dá erro (fail-closed, não vaza). Segredos nunca vão pro git (`.env`/`*.local.md` gitignored).
+
+### Etapa 23.1 — Fix do login: tokens do Supabase são ES256, não HS256 (10/08/2026)
+
+No primeiro deploy o login não entrava (logava e voltava pra tela de login). **Causa:** o projeto do
+Renan é novo e usa as chaves no formato novo (`sb_publishable_...`) — e assina os access_tokens com
+**ES256 (chave assimétrica)**, publicada no JWKS (`/auth/v1/.well-known/jwks.json`, confirmado:
+`"alg":"ES256"`). O back verificava em **HS256** com a "JWT Secret" → rejeitava o token real → 401 →
+o front (`pedir()` em 401 chama `sair()`) jogava de volta pro login. Meus testes de isolamento tinham
+passado porque usei tokens que EU assinei em HS256 — premissa errada minha.
+
+**Correção (`main.py`):** `_verificar_token()` tenta **ES256 via JWKS** (busca a chave pública 1x,
+cacheia; casa pelo `kid`; recarrega o JWKS 1x se a chave rotacionou) e cai pra **HS256 (JWT Secret)**
+como reserva/legado. `exigir_login` usa isso. Novas envs: `SUPABASE_URL` (necessária p/ o JWKS — o
+endpoint é público, nem precisa de apikey) e `SUPABASE_PUBLISHABLE_KEY` (opcional). Provei a mecânica
+ES256 localmente (gerei chave EC + token ES256 → aceita; rejeita adulterado e chave errada). Confirmação
+com token REAL do Supabase fica com o Renan testando o login após o deploy.
+
+**⚠ Render:** adicionar `SUPABASE_URL=https://jrchngwumnyqohrtrzrr.supabase.co` (sem ela o back cai no
+HS256 e o login ES256 falha).
