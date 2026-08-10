@@ -155,6 +155,37 @@
     padding: 12px 16px; margin: 2px 4px 14px;
   }
 
+  /* mini-calendário de vencimentos (Visão geral) */
+  .cal-topo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .cal-topo .cal-mes { font-size: 14px; font-weight: 600; text-transform: capitalize; }
+  .cal-nav {
+    background: none; border: 1px solid var(--borda); color: var(--texto2); border-radius: 8px;
+    cursor: pointer; font-family: inherit; font-size: 15px; width: 28px; height: 28px; line-height: 1;
+  }
+  .cal-nav:hover { color: var(--texto); border-color: var(--roxo); }
+  .cal-grade { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-cab {
+    text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--texto2); font-weight: 600; padding-bottom: 4px;
+  }
+  .cal-dia {
+    position: relative; aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: var(--texto); border-radius: 9px; font-variant-numeric: tabular-nums;
+  }
+  .cal-dia.vazia { visibility: hidden; }
+  .cal-dia.tem { cursor: pointer; }
+  .cal-dia.tem:hover { background: var(--painel2); }
+  .cal-dia.hoje { outline: 2px solid var(--roxo); }
+  .cal-dia.sel { background: var(--roxo-fundo); }
+  .cal-ponto { width: 6px; height: 6px; border-radius: 50%; position: absolute; bottom: 5px; }
+  /* detalhe do dia clicado */
+  .cal-detalhe { margin-top: 14px; border-top: 1px solid var(--borda); padding-top: 14px; }
+  .cal-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+    padding: 9px 0; border-bottom: 1px solid var(--borda);
+  }
+  .cal-item:last-child { border-bottom: none; }
+
   /* formulários */
   .forma { margin-bottom: 4px; }
   .forma h3 { font-size: 14px; margin-bottom: 12px; font-weight: 600; }
@@ -301,13 +332,19 @@
           <div id="d-caixinhas"></div>
         </div>
       </div>
-      <div class="painel">
-        <h2>Distribuição das caixinhas</h2>
-        <canvas id="grafico-pizza" style="max-height:260px"></canvas>
-        <div id="pizza-vazio" class="vazio" style="display:none">Crie caixinhas e guarde dinheiro para ver a distribuição.</div>
-        <div id="painel-bancos" style="display:none;margin-top:20px;border-top:1px solid var(--borda);padding-top:18px">
-          <h2 style="margin-bottom:14px">Dinheiro por banco</h2>
-          <div id="lista-por-banco"></div>
+      <div>
+        <div class="painel">
+          <h2>Vencimentos do mês 📅</h2>
+          <div id="cal-widget"></div>
+        </div>
+        <div class="painel">
+          <h2>Distribuição das caixinhas</h2>
+          <canvas id="grafico-pizza" style="max-height:260px"></canvas>
+          <div id="pizza-vazio" class="vazio" style="display:none">Crie caixinhas e guarde dinheiro para ver a distribuição.</div>
+          <div id="painel-bancos" style="display:none;margin-top:20px;border-top:1px solid var(--borda);padding-top:18px">
+            <h2 style="margin-bottom:14px">Dinheiro por banco</h2>
+            <div id="lista-por-banco"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -968,6 +1005,7 @@ function statusConta(c) {
 async function carregarContas() {
   const contas = await pedir("/contas");
   CONTAS = contas;
+  renderCalendario();   // calendário de vencimentos (Visão geral) usa CONTAS
   const lista = document.getElementById("lista-contas");
   let falta = 0;
   contas.forEach(c => { if (!c.paga) falta += c.valor_reais; });
@@ -1024,6 +1062,131 @@ async function carregarContas() {
   lista.innerHTML = html;
   // E2: as assinaturas dependem de CONTAS (faturas) já estar carregado
   await carregarRecorrentes();
+}
+
+// ---- mini-calendário de vencimentos (Visão geral) ----
+// Widget só de front: desenha o mês, marca cada dia que tem conta vencendo com um
+// pontinho (cor = status mais urgente) e, ao clicar num dia, lista as contas com opção
+// de pagar ali mesmo (reaproveita POST /contas/{id}/pagar). Nenhuma rota nova.
+let calRef = null;       // Date apontando pro 1º dia do mês exibido
+let calDiaSel = null;    // dia selecionado (AAAA-MM-DD) ou null
+
+// cor do pontinho do dia = status mais urgente entre as contas do dia
+// (dá prioridade às não pagas; se todas pagas, mostra a cor de "Pago").
+function corDoDia(lista) {
+  const naoPagas = lista.filter(c => !c.paga);
+  const base = naoPagas.length ? naoPagas : lista;
+  let melhor = null, peso = -1;
+  base.forEach(c => {
+    const t = statusConta(c).texto;
+    const p = t.startsWith("Vencido") ? 4 : t.startsWith("Vence hoje") ? 3
+            : t.startsWith("Faltam") ? 2 : t === "Pago" ? 0 : 1;
+    if (p > peso) { peso = p; melhor = statusConta(c); }
+  });
+  return melhor ? melhor.cor : "var(--texto2)";
+}
+
+function renderCalendario() {
+  const wrap = document.getElementById("cal-widget");
+  if (!wrap) return;
+  if (!calRef) calRef = new Date();
+  const ano = calRef.getFullYear(), mes = calRef.getMonth();   // mes: 0-11
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const offset = new Date(ano, mes, 1).getDay();               // 0=Dom ... 6=Sáb
+  const diasNoMes = new Date(ano, mes + 1, 0).getDate();
+  const mesStr = `${ano}-${String(mes + 1).padStart(2, "0")}`;
+  const nomeMes = calRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
+  // agrupa as contas do mês exibido por dia de vencimento
+  const porDia = {};
+  CONTAS.forEach(c => {
+    if (c.vencimento && c.vencimento.slice(0, 7) === mesStr) {
+      (porDia[c.vencimento] = porDia[c.vencimento] || []).push(c);
+    }
+  });
+
+  const cabs = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+  let html = `<div class="cal-topo">
+    <button class="cal-nav" onclick="calMudarMes(-1)" title="Mês anterior">‹</button>
+    <span class="cal-mes">${nomeMes}</span>
+    <button class="cal-nav" onclick="calMudarMes(1)" title="Próximo mês">›</button>
+  </div><div class="cal-grade">`;
+  html += cabs.map(d => `<div class="cal-cab">${d}</div>`).join("");
+  for (let i = 0; i < offset; i++) html += `<div class="cal-dia vazia"></div>`;
+  for (let d = 1; d <= diasNoMes; d++) {
+    const ds = `${mesStr}-${String(d).padStart(2, "0")}`;
+    const lista = porDia[ds] || [];
+    const ehHoje = (ano === hoje.getFullYear() && mes === hoje.getMonth() && d === hoje.getDate());
+    const cls = ["cal-dia"];
+    if (ehHoje) cls.push("hoje");
+    if (lista.length) cls.push("tem");
+    if (calDiaSel === ds) cls.push("sel");
+    let ponto = "", titAttr = "", onclick = "";
+    if (lista.length) {
+      ponto = `<span class="cal-ponto" style="background:${corDoDia(lista)}"></span>`;
+      const t = lista.map(c => `${c.nome} — ${reais(c.valor_reais)} (${statusConta(c).texto})`).join("\n");
+      titAttr = ` title="${t.replace(/"/g, "&quot;")}"`;
+      onclick = ` onclick="calAbrirDia('${ds}')"`;
+    }
+    html += `<div class="${cls.join(" ")}"${onclick}${titAttr}>${d}${ponto}</div>`;
+  }
+  html += `</div><div id="cal-detalhe"></div>`;
+  wrap.innerHTML = html;
+  renderCalDetalhe();
+}
+
+function calMudarMes(delta) {
+  if (!calRef) calRef = new Date();
+  calRef = new Date(calRef.getFullYear(), calRef.getMonth() + delta, 1);
+  calDiaSel = null;
+  renderCalendario();
+}
+
+// clicar num dia abre/fecha o detalhe daquele dia
+function calAbrirDia(ds) {
+  calDiaSel = (calDiaSel === ds) ? null : ds;
+  renderCalendario();
+}
+
+// lista as contas do dia selecionado, com opção de pagar direto
+function renderCalDetalhe() {
+  const el = document.getElementById("cal-detalhe");
+  if (!el) return;
+  if (!calDiaSel) { el.innerHTML = ""; return; }
+  const lista = CONTAS.filter(c => c.vencimento === calDiaSel);
+  const dataFmt = new Date(calDiaSel + "T00:00:00").toLocaleDateString("pt-BR", { day: "numeric", month: "long" });
+  if (!lista.length) {
+    el.innerHTML = `<div class="cal-detalhe"><div class="vazio">Nada vence em ${dataFmt}.</div></div>`;
+    return;
+  }
+  const menu = CAIXINHAS.map(cx => `<option value="${cx.id}">${cx.nome}</option>`).join("");
+  let html = `<div class="cal-detalhe"><div class="grupo-dia" style="margin-top:0">${dataFmt}</div>`;
+  html += lista.map(c => {
+    const st = statusConta(c);
+    const tag = `<span class="status-tag" style="color:${st.cor};background:${st.fundo}">${st.texto}</span>`;
+    const info = `<div><div class="nome">${c.nome}</div><div class="sub">${reais(c.valor_reais)}${c.tipo_conta === "fatura" ? " · fatura" : ""}</div></div>`;
+    if (c.paga) {
+      return `<div class="cal-item">${info}<div style="display:flex;align-items:center;gap:8px">${tag}</div></div>`;
+    }
+    const acao = CAIXINHAS.length
+      ? `<select id="cal-pagar-${c.id}" style="font-family:inherit;font-size:12px;padding:6px;border:1px solid var(--borda);border-radius:8px;background:var(--fundo);color:var(--texto);max-width:120px">${menu}</select>
+         <button class="acao pequeno" onclick="pagarContaCal(${c.id})">Pagar</button>`
+      : `<span class="sub">Crie uma caixinha para pagar</span>`;
+    return `<div class="cal-item">${info}<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${tag}${acao}</div></div>`;
+  }).join("");
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+// paga a conta a partir do calendário (mesmo endpoint da tela de Dívidas)
+async function pagarContaCal(id) {
+  const sel = document.getElementById("cal-pagar-" + id);
+  if (!sel || !sel.value) return aviso("Crie uma caixinha para pagar.", "erro");
+  try {
+    await pedir(`/contas/${id}/pagar`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ caixinha_id: parseInt(sel.value) }) });
+    aviso("Conta paga.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
 }
 
 // D: mostra/esconde o painel de itens de uma fatura

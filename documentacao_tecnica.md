@@ -225,7 +225,10 @@ mês (dedup por nome+vencimento). Ao vincular à fatura, a conta avulsa não-pag
 - **8 telas** no menu lateral: Visão geral, Caixinhas, Dívidas, Histórico, Análise, Categorias,
   **Regras**, **Importar** (+ Sair). Troca por classe `.ativa`.
 - **Atalhos (E9):** `E` = entrada, `G` = gasto, `Esc` = tira foco, `Enter` = salva.
-- **Dashboard:** cards de resumo + pizza (Chart.js) + badge de **streak (E5)**.
+- **Dashboard:** cards de resumo + pizza (Chart.js) + badge de **streak (E5)** + **mini-calendário de
+  vencimentos** (Etapa 21): mês navegável, um pontinho por dia com conta vencendo (cor = status via
+  `statusConta`: vermelho vencido/hoje, amarelo a vencer, verde pago), tooltip com as contas do dia, e
+  ao clicar no dia lista as contas com **pagar direto** (reusa `POST /contas/{id}/pagar`). Só front-end.
 - **Caixinhas:** lista com metas (barra + prazo E8), formulários (guardar, **rendimento M2**,
   transferir, gastar, tirar do livre) e **Termômetro/Runway (E1)**.
 - **Dívidas:** tabela com status por vencimento (`statusConta`: Pago/Vencido/Vence hoje/Faltam X dias≤7/

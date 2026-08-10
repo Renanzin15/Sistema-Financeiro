@@ -1234,3 +1234,45 @@ na mão, o que não acontece quando o app sobe pelo `.bat`):
 e vencimento 20/08/2026 certos; e uma simulação de startup da pasta de execução confirmou
 `OCR_DISPONIVEL=True`, idiomas `por+eng`, `tesseract_cmd` correto — tudo **sem tocar no `financeiro.db`
 real** (testes em cópia isolada, porque `criar_tabelas()` roda no import e abriria o banco do cwd).
+## Etapa 22 — Mini-calendário de vencimentos na Visão geral (10/08/2026)
+
+Pedido do Renan (ele trouxe o desenho da "Opção 1: mini-calendário estilo widget"): um calendário do
+mês na tela **Visão geral**, com um **pontinho colorido** em cada dia que tem conta vencendo e, ao
+**clicar no dia**, poder **pagar a conta ali mesmo**. Decisões confirmadas por ele: fica na **Visão
+geral** (não na Análise) e a ação do dia é **pagar direto** (não pular pra Dívidas).
+
+**Só front-end — nenhuma rota nova, nenhuma migração.** O widget lê o array `CONTAS` (já carregado por
+`carregarContas`) e o pagamento reaproveita `POST /contas/{id}/pagar` (o mesmo da tela de Dívidas). Por
+isso **não precisa backup do `financeiro.db`** pra essa etapa. `main.py` ficou **intocado**.
+
+**O que foi feito no `index.html`:**
+- **HTML:** a coluna direita do dashboard virou um wrapper com 2 painéis — o novo *"Vencimentos do mês
+  📅"* (`#cal-widget`) em cima e o de *"Distribuição das caixinhas"* (pizza) embaixo. Estrutura da pizza
+  e do `#painel-bancos` preservada (só ganhou um nível de aninhamento).
+- **CSS:** bloco `.cal-*` (grade 7 colunas com `aspect-ratio:1/1`, cabeçalhos Dom–Sáb, `.cal-ponto`,
+  anel roxo `.cal-dia.hoje`, seleção `.cal-dia.sel`, `.cal-detalhe`/`.cal-item`). Reusa as variáveis de
+  cor e classes existentes (`.status-tag`, `.nome`, `.sub`, `.grupo-dia`).
+- **JS:** `renderCalendario()` (chamada dentro de `carregarContas`, logo após `CONTAS = contas`),
+  `corDoDia()` (cor do pontinho = status mais urgente, priorizando não pagas), `calMudarMes(±1)` (setas
+  ‹ ›), `calAbrirDia(ds)` (abre/fecha o detalhe do dia), `renderCalDetalhe()` (lista as contas do dia +
+  select de caixinha + botão Pagar; conta paga aparece sem botão) e `pagarContaCal(id)`. Tooltip nativo
+  (`title`) no dia mostra "Nome — R$ x,xx (Status)"; dia com várias contas lista todas.
+
+**Regras de cor (derivadas de `statusConta`, sem duplicar lógica):** vermelho = Vencido/Vence hoje;
+amarelo = A vencer/Faltam ≤7 dias; verde = Pago. Dia com contas mistas usa a cor da **mais urgente
+não paga**.
+
+**Teste (ambiente isolado, porta 8266, base zerada):** criei banco+caixinha (com saldo) e 5 contas de
+agosto/2026 (Cartão 04 vencido, Luz 10 paga=hoje, Prime 17, Aluguel 17, Internet 25). Verificado pelo
+DOM real (login programático + inspeção): mês "agosto de 2026"; pontinhos certos nos dias 4/10/17/25 com
+as cores certas; dia 17 com **2 contas** no tooltip; clicar no 17 abre o detalhe "17 de agosto" com
+select+Pagar por conta; **pagar o Prime pelo calendário** → virou Pago, dia 17 continuou amarelo
+(Aluguel pendente), detalhe reabriu atualizado; navegação de meses (setembro/outubro vazios, sem anel de
+hoje) e volta pra agosto OK; trocar de mês limpa o dia selecionado. Front `index.html` cresceu ~118
+linhas. *(Não deu pra tirar screenshot — o Browser pane não estava visível; validação foi via DOM +
+prévia estática entregue ao Renan.)*
+
+**Pendente / ideias que surgiram:** no celular não há hover, então o tooltip não abre no toque — o
+**clique já resolve** (abre o detalhe), então funciona no celular; o tooltip é só um extra no desktop.
+Possível evolução futura: mostrar mais de um pontinho por dia (hoje é 1 só, colorido pela conta mais
+urgente).
