@@ -4,6 +4,7 @@ uvicorn[standard]
 bcrypt
 python-jose[cryptography]
 pydantic
+psycopg2-binary
 
 # --- Opcional (só necessário pro leitor de conta por imagem / PDF, o OCR) ---
 # Sem isso instalado o app roda normal, só a rota /importar/conta-imagem fica indisponível.

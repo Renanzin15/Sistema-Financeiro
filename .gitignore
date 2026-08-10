@@ -8,6 +8,10 @@ financeiro.db
 .env
 .env.*
 
+# === Notas locais com credenciais (Supabase etc.) — NUNCA versionar ===
+*.local.md
+.secrets/
+
 # === Python ===
 __pycache__/
 *.pyc

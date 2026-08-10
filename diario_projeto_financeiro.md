@@ -1276,3 +1276,48 @@ prévia estática entregue ao Renan.)*
 **clique já resolve** (abre o detalhe), então funciona no celular; o tooltip é só um extra no desktop.
 Possível evolução futura: mostrar mais de um pontinho por dia (hoje é 1 só, colorido pela conta mais
 urgente).
+
+## Etapa 23 — SaaS multi-usuário (Postgres + Supabase Auth + isolamento por user_id) (10/08/2026)
+
+Renan hospedou o FastAPI no Render puxando deste repo e criou um banco no Supabase. Descobri que o
+repo (o que roda no Render) ainda era a versão **SQLite** — ou seja, não persistia no Supabase de
+verdade. Então "virar SaaS multi-usuário" virou um pacote grande, feito e **testado** aqui antes de subir.
+
+**1) Backend fala Postgres/Supabase OU SQLite** (`main.py`): detecção por env (`PGHOST`/`DATABASE_URL`).
+Wrapper `_ConexaoPG` faz a conexão psycopg2 se comportar como a do sqlite3 e traduz `?`→`%s`, então os
+~115 `con.execute` ficaram intactos. DDL Postgres própria; `migrar()` no-op no PG. `.env` carregado por
+`_carregar_env_local()` (no Render as vars vêm do painel). `requirements.txt` ganhou `psycopg2-binary`.
+
+**2) Autenticação = Supabase Auth** (saiu a senha única). `exigir_login` verifica o access_token do
+Supabase (HS256 com a JWT Secret, `aud=authenticated`) e devolve o `user_id` (`sub`). Rotas `/auth/*`
+antigas removidas. Front: tela de login e-mail/senha que chama `POST {SUPABASE_URL}/auth/v1/token`
+(header `apikey` = publishable key, ambos PÚBLICOS e hardcoded no index.html), guarda o token no
+`localStorage` (não desloga no refresh) e manda como `Bearer`. `pedir()` volta pro login em 401.
+
+**3) Isolamento por `user_id`** — o coração. `user_id UUID` em todas as tabelas + `config` por usuário
+(PK `(user_id, chave)`) + índices. **Toda** query filtra/insere por `user_id` (rotas, e os helpers
+`saldo_da_caixinha`, `total_conta`, `aplicar_regras_salario`, `gerar_recorrentes_do_mes`). Categorias
+padrão agora são semeadas **por usuário** (`_garantir_usuario`, 1x). Ações sobre ids alheios validam
+posse (`WHERE id=? AND user_id=?` → 404). Como o backend conecta como role `postgres` (que **ignora
+RLS**), o isolamento REAL é no código; RLS fica como rede de segurança.
+
+**4) Rota `/`** passa a servir o `index.html` (o `/app` também continua).
+
+**5) `migrar_para_supabase.py`** atualizado: lê o `financeiro.db` (schema antigo, só-leitura), cria o
+schema no Supabase e copia tudo **carimbando `user_id = <SEU UUID>`** em cada linha; descarta a linha
+`senha_hash` (obsoleta). Uso: `python migrar_para_supabase.py <SEU_UUID> [financeiro.db]`.
+
+**Testes (contra o Supabase real, com 2 usuários SIMULADOS — tokens que assinei com a JWT Secret):**
+- Isolamento: **19 checks OK** — cada usuário só vê o seu (bancos/caixinhas/lançamentos/contas/
+  saldo-livre/categorias); usuário A **não** consegue pagar/editar/apagar/transferir/ver itens de B
+  (tudo 404), e B fica intacto. Token inválido → 401.
+- Postgres CRUD + cálculos (saldo, saldo-livre, fatura somando itens) corretos; fallback SQLite OK.
+- Front: login Supabase (erro com credencial falsa; sucesso injetando token → app carrega os dados do
+  usuário). `sair()` limpa. Sem erros de console.
+- Migração: db schema-antigo → Supabase, todas as linhas com `user_id`, `senha_hash` descartado.
+
+**⚠ Deploy (o app só funciona no ar depois disto):** setar no **Render** as env vars
+`PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD/PGSSLMODE` (Session Pooler sa-east-1) e
+`SUPABASE_JWT_SECRET` (valores no `.env`/[[CREDENCIAIS_SUPABASE.local]]); **criar seu usuário** em
+Authentication → Add user (signups desativados); rodar a **migração** com o seu UUID. Sem env vars o
+login dá erro (fail-closed, não vaza). Segredos nunca vão pro git (`.env`/`*.local.md` gitignored).
