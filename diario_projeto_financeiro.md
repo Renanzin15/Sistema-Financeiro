@@ -1340,3 +1340,25 @@ com token REAL do Supabase fica com o Renan testando o login após o deploy.
 
 **⚠ Render:** adicionar `SUPABASE_URL=https://jrchngwumnyqohrtrzrr.supabase.co` (sem ela o back cai no
 HS256 e o login ES256 falha).
+
+### Etapa 23.2 — Migração de dados executada e verificada (10/08/2026)
+
+Rodei de verdade o `migrar_para_supabase.py` levando o `financeiro.db` real do Renan
+(`D:\PROGRAMAÇÃO\Financeiro\financeiro.db`) pro Postgres do Supabase, carimbando o `user_id` do
+Renan. **Nota de ambiente:** a pasta de execução `D:\PROGRAMAÇÃO\Financeiro` hoje está **na mesma
+máquina** deste vault (a memória antiga dizia "outra máquina" — desatualizado); o `financeiro.db` real
+estava ali e foi lido **só-leitura** (não alterado). O `.env` com as credenciais do Supabase (Session
+Pooler sa-east-1) foi montado a partir das env vars do painel do Render e fica **fora do git**
+(`.gitignore`); **segredos nunca entram neste diário nem em arquivo versionado.**
+
+**Resultado (origem SQLite × destino Supabase, tudo com o `user_id` do Renan):** bancos 4, caixinhas 8,
+lançamentos 47, contas 12, recorrentes 4, fatura_itens 2, categorias 4, regras_salario 2, config 2
+(a antiga `senha_hash` foi descartada, por isso 3→2) — **todas as tabelas OK, contagem batendo.**
+Verificação independente reconectando no Supabase e filtrando por `user_id`: mesmos números, bancos
+reais (Itau, Nubank, PicPay, Mercado Pago), 47 lançamentos somando R$ 11.315,61, e **0 linhas sem
+`user_id`** (nada vaza pra outros usuários). O TRUNCATE do destino (o script limpa antes de copiar)
+foi avisado ao Renan antes de rodar; o destino só tinha teste/vazio.
+
+**Estado:** o app no Render agora tem os dados reais do Renan no Supabase, isolados pela conta dele.
+Próximo passo do Renan: entrar no site com o login (e-mail/senha do Supabase Auth) e conferir que as
+telas mostram os dados migrados.
