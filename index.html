@@ -717,6 +717,18 @@
   </div>
 </div>
 
+<!-- modal de formulário (substitui os prompt() nativos: editar dívida, meta da caixinha) -->
+<div class="modal-fundo" id="modal-form">
+  <div class="modal-cx">
+    <h3 id="mf-titulo">Editar</h3>
+    <div id="mf-corpo"></div>
+    <div class="m-acoes">
+      <button class="acao pequeno" style="background:none;color:var(--texto2);box-shadow:none;border:1px solid var(--borda)" id="mf-cancelar">Cancelar</button>
+      <button class="acao pequeno" id="mf-ok">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = "";
 let CAIXINHAS = [];
@@ -792,6 +804,47 @@ function confirmar(opts) {
     btnOk.onclick = () => fechar(true);
     btnCancel.onclick = () => fechar(false);
     fundo.onclick = (e) => { if (e.target === fundo) fechar(false); };  // clicar fora cancela
+    document.addEventListener("keydown", onKey);
+  });
+}
+
+// modal de formulário — substitui os prompt() nativos. Recebe {titulo, campos:[{id,label,valor,tipo,placeholder}], rotulo}
+// e devolve uma Promise: um objeto {id: valor} no Salvar, ou null no Cancelar.
+function abrirFormModal(opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    const fundo = document.getElementById("modal-form");
+    document.getElementById("mf-titulo").textContent = opts.titulo || "Editar";
+    const corpo = document.getElementById("mf-corpo");
+    corpo.innerHTML = (opts.campos || []).map(c => `
+      <div class="campo">
+        <label>${c.label || ""}</label>
+        <input id="mf-campo-${c.id}" type="${c.tipo || "text"}" ${c.tipo === "number" ? 'step="0.01"' : ""}
+               value="${(c.valor ?? "").toString().replace(/"/g, "&quot;")}" placeholder="${c.placeholder || ""}">
+      </div>`).join("");
+    const btnOk = document.getElementById("mf-ok");
+    const btnCancel = document.getElementById("mf-cancelar");
+    btnOk.textContent = opts.rotulo || "Salvar";
+    fundo.classList.add("aberto");
+    const primeiro = corpo.querySelector("input"); if (primeiro) { primeiro.focus(); primeiro.select && primeiro.select(); }
+    const coletar = () => {
+      const r = {};
+      (opts.campos || []).forEach(c => { r[c.id] = document.getElementById("mf-campo-" + c.id).value; });
+      return r;
+    };
+    const fechar = (valor) => {
+      fundo.classList.remove("aberto");
+      btnOk.onclick = btnCancel.onclick = fundo.onclick = null;
+      document.removeEventListener("keydown", onKey);
+      resolve(valor);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") fechar(null);
+      else if (e.key === "Enter" && (e.target.tagName || "") === "INPUT") fechar(coletar());
+    };
+    btnOk.onclick = () => fechar(coletar());
+    btnCancel.onclick = () => fechar(null);
+    fundo.onclick = (e) => { if (e.target === fundo) fechar(null); };
     document.addEventListener("keydown", onKey);
   });
 }
@@ -1901,24 +1954,27 @@ async function criarCaixinha() {
 async function definirMeta(id) {
   const c = TODAS_CAIXINHAS.find(x => x.id === id);
   const atual = (c && c.meta_reais) ? c.meta_reais.toFixed(2) : "";
-  const s = prompt("Meta desta caixinha (R$) — deixe em branco para remover:", atual);
-  if (s === null) return;
+  const atualPrazo = (c && c.meta_prazo) ? c.meta_prazo : "";
+  const r = await abrirFormModal({
+    titulo: "Meta da caixinha",
+    campos: [
+      { id: "meta", label: "Meta (R$) — em branco remove", valor: atual, tipo: "number", placeholder: "1000,00" },
+      { id: "prazo", label: "Data-limite (opcional)", valor: atualPrazo, tipo: "date" }
+    ],
+    rotulo: "Salvar"
+  });
+  if (!r) return;
   let meta_centavos = 0;
-  if (s.trim() !== "") {
-    const v = parseFloat(s.replace(",", "."));
+  if ((r.meta || "").trim() !== "") {
+    const v = parseFloat(r.meta.replace(",", "."));
     if (isNaN(v) || v < 0) return aviso("Valor inválido.", "erro");
     meta_centavos = Math.round(v * 100);
   }
-  // E8: se tem meta, pergunta a data-limite opcional (ex.: IPVA em janeiro)
+  // E8: data-limite opcional (ex.: IPVA em janeiro) — só vale se tiver meta
   let meta_prazo = null;
-  if (meta_centavos > 0) {
-    const atualPrazo = (c && c.meta_prazo) ? c.meta_prazo : "";
-    const p = prompt("Data-limite da meta (AAAA-MM-DD) — deixe em branco para meta sem prazo:", atualPrazo);
-    if (p === null) return;
-    if (p.trim() !== "") {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(p.trim())) return aviso("Data inválida. Use AAAA-MM-DD.", "erro");
-      meta_prazo = p.trim();
-    }
+  if (meta_centavos > 0 && (r.prazo || "").trim() !== "") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(r.prazo.trim())) return aviso("Data inválida. Use AAAA-MM-DD.", "erro");
+    meta_prazo = r.prazo.trim();
   }
   try {
     await pedir(`/caixinhas/${id}/meta`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ meta_centavos, meta_prazo }) });
@@ -2103,25 +2159,24 @@ async function mostrarArquivadas(mostrar) {
 async function editarConta(id) {
   const c = CONTAS.find(x => x.id === id);
   if (!c) return;
-  const nome = prompt("Nome da dívida:", c.nome);
-  if (nome === null) return;
+  const ehFatura = c.tipo_conta === "fatura";
+  const campos = [{ id: "nome", label: "Nome da dívida", valor: c.nome }];
   // fatura não tem valor editável (o total vem da soma dos itens)
+  if (!ehFatura) campos.push({ id: "valor", label: "Valor (R$)", valor: c.valor_reais.toFixed(2), tipo: "number", placeholder: "0,00" });
+  campos.push({ id: "vencimento", label: "Vencimento", valor: c.vencimento || "", tipo: "date" });
+  campos.push({ id: "tipo", label: "Categoria", valor: c.tipo || "outro", placeholder: "fixa, cartão, outro" });
+  const r = await abrirFormModal({ titulo: "Editar dívida", campos, rotulo: "Salvar" });
+  if (!r) return;
   let valorCentavos = 0;
-  if (c.tipo_conta !== "fatura") {
-    const valorStr = prompt("Valor (R$):", c.valor_reais.toFixed(2));
-    if (valorStr === null) return;
-    const valor = parseFloat(valorStr.replace(",", "."));
+  if (!ehFatura) {
+    const valor = parseFloat((r.valor || "").replace(",", "."));
     if (isNaN(valor)) return aviso("Valor inválido.", "erro");
     valorCentavos = Math.round(valor * 100);
   }
-  const vencimento = prompt("Vencimento (AAAA-MM-DD):", c.vencimento || "");
-  if (vencimento === null) return;
-  const tipo = prompt("Categoria (fixa, cartao, outro):", c.tipo || "outro");
-  if (tipo === null) return;
   try {
     await pedir("/contas/" + id, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nome, valor_centavos: valorCentavos, vencimento, tipo })
+      body: JSON.stringify({ nome: r.nome, valor_centavos: valorCentavos, vencimento: r.vencimento, tipo: r.tipo })
     });
     aviso("Dívida editada.", "ok"); carregarTudo();
   } catch (e) { aviso(e.message, "erro"); }

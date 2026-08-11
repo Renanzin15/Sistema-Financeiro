@@ -1390,3 +1390,12 @@ alocar sem saldo barra; entrada permite; alocar acima do livre barra; alocar den
 de caixinha acima do saldo dela barra; gastar dentro permite; saída livre acima do livre barra;
 saída livre dentro permite; pagamento sem caixinha barra. Saldos finais conferidos (livre R$ 0,10 e
 caixinha R$ 0,50, batendo com as contas). Só mudou o `main.py` (back-end); o front não precisou mudar.
+### Etapa 25 — Pop-up "com a nossa cara" no lugar dos prompt() nativos (10/08/2026)
+
+O Renan reclamou (com print) dos `prompt()` cinzas do navegador (que às vezes vinham escuros, pois o
+navegador decide o estilo). Criei um **modal de formulário estilizado reutilizável** `abrirFormModal({titulo,
+campos:[{id,label,valor,tipo,placeholder}], rotulo})` -> Promise (objeto de valores no Salvar, null no
+Cancelar), no mesmo visual do modal de confirmação. Troquei os prompt() de **editar dívida** (nome, valor,
+vencimento com date-picker, categoria — tudo numa tela só em vez de 4 caixinhas seguidas) e **meta da
+caixinha** (valor + prazo). Esc fecha, Enter salva, clicar fora cancela. Testado no navegador (abre,
+campos/tipos certos, retorna valores, cancela=null; zero erros). Sobraram zero dialogs nativos.
