@@ -1399,3 +1399,22 @@ Cancelar), no mesmo visual do modal de confirmação. Troquei os prompt() de **e
 vencimento com date-picker, categoria — tudo numa tela só em vez de 4 caixinhas seguidas) e **meta da
 caixinha** (valor + prazo). Esc fecha, Enter salva, clicar fora cancela. Testado no navegador (abre,
 campos/tipos certos, retorna valores, cancela=null; zero erros). Sobraram zero dialogs nativos.
+
+### Etapa 26 — Entradas automáticas (renda recorrente + distribuição) (10/08/2026)
+
+Pedido do Renan: "todo dia 5 eu ganho R$ 1.700 de salário" — renda que entra sozinha num dia fixo. E a
+sacada dele: se a entrada automática for salário, **bater na regra de distribuição** e automatizar tudo.
+
+**Back-end:** nova tabela `entradas_recorrentes` (nome, valor_centavos, dia, user_id) — DDL Postgres +
+SQLite (criada automaticamente no deploy pelo `criar_tabelas`). Helper `gerar_entradas_recorrentes(user_id)`:
+pra cada renda cujo `dia` já chegou no mês, cria 1 `entrada` (dedup por nome+mês) e **chama
+`aplicar_regras_salario`** — ou seja, se o nome casar com um gatilho, distribui nas caixinhas na hora.
+Rotas: `GET/POST/DELETE /entradas-recorrentes` + `POST /entradas-recorrentes/gerar`. Migração
+(`migrar_para_supabase.py`) atualizada com a tabela nova.
+
+**Front:** painel "Entradas automáticas 💰" na tela **Regras** (nome, valor, dia + lista). `carregarTudo`
+chama `/entradas-recorrentes/gerar` ANTES de calcular saldos/histórico, então a renda do dia já aparece.
+
+**Testado (SQLite isolado, 7/7):** cria a entrada; **dispara a distribuição** (10% → caixinha); NÃO
+lança renda de dia futuro; saldos certos (caixinha R$170, livre R$1530); 2ª geração não duplica. Front:
+sem erros, painel/campos/validação OK. Nada de deploy manual — a tabela nasce no Supabase no startup.

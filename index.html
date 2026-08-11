@@ -691,6 +691,17 @@
         <div class="sub" style="margin-top:12px">O gatilho precisa ser <b>igual</b> ao nome da entrada (não diferencia maiúsculas). Para editar uma regra, remova e crie de novo.</div>
       </div>
     </div>
+    <div class="painel">
+      <h2>Entradas automáticas 💰</h2>
+      <div class="sub" style="margin-bottom:14px">Renda que cai todo mês num dia fixo (ex.: <b>Salário, R$ 1.700, dia 5</b>). O app lança sozinho quando o dia chega — e, se o nome for igual ao <b>gatilho</b> de uma regra acima, já distribui nas caixinhas. Automação total.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
+        <div class="campo" style="flex:2;min-width:150px;margin-bottom:0"><label>Nome da renda</label><input id="er-nome" placeholder="Salário"></div>
+        <div class="campo" style="flex:1;min-width:110px;margin-bottom:0"><label>Valor (R$)</label><input id="er-valor" type="number" step="0.01" placeholder="1700,00"></div>
+        <div class="campo" style="flex:0 0 84px;margin-bottom:0"><label>Dia</label><input id="er-dia" type="number" min="1" max="31" placeholder="5"></div>
+        <button class="acao" onclick="criarEntradaRecorrente()">Adicionar</button>
+      </div>
+      <div id="lista-entradas-rec" style="margin-top:14px"></div>
+    </div>
   </section>
 </main>
 
@@ -922,8 +933,10 @@ function sair() {
 
 async function carregarTudo() {
   await carregarBancos();
+  // lança as entradas recorrentes cujo dia já chegou ANTES de calcular saldos/histórico
+  try { await pedir("/entradas-recorrentes/gerar", { method: "POST" }); } catch (e) {}
   // carregarRecorrentes roda dentro de carregarContas (precisa de CONTAS já carregado p/ o vínculo de fatura)
-  await Promise.all([carregarSaldoLivre(), carregarCaixinhas(), carregarContas(), carregarHistorico(), carregarAnalise(), carregarCategorias(), carregarStreak(), carregarRegras()]);
+  await Promise.all([carregarSaldoLivre(), carregarCaixinhas(), carregarContas(), carregarHistorico(), carregarAnalise(), carregarCategorias(), carregarStreak(), carregarRegras(), carregarEntradasRecorrentes()]);
   atualizarPainelBancos();
   verificarWrapped();   // E6: mostra a retrospectiva do mês passado (1x por sessão)
 }
@@ -1879,6 +1892,42 @@ async function criarRegra() {
 
 async function apagarRegra(id) {
   try { await pedir("/regras/" + id, { method: "DELETE" }); aviso("Regra apagada.", "ok"); carregarTudo(); }
+  catch (e) { aviso(e.message, "erro"); }
+}
+
+// ---- entradas automáticas (renda recorrente: ex. salário todo dia 5) ----
+async function carregarEntradasRecorrentes() {
+  const lista = document.getElementById("lista-entradas-rec");
+  if (!lista) return;
+  let itens = [];
+  try { itens = await pedir("/entradas-recorrentes"); } catch (e) { return; }
+  if (itens.length === 0) { lista.innerHTML = '<div class="vazio">Nenhuma renda automática ainda.</div>'; return; }
+  lista.innerHTML = itens.map(i => `
+    <div class="item">
+      <div><div class="nome">${i.nome}</div><div class="sub">${reais(i.valor_reais)} · todo dia ${i.dia}</div></div>
+      <button class="perigo ib" title="Apagar" onclick="apagarEntradaRecorrente(${i.id})">${ico('apagar')}</button>
+    </div>`).join("");
+}
+
+async function criarEntradaRecorrente() {
+  const nome = document.getElementById("er-nome").value.trim();
+  const valorStr = document.getElementById("er-valor").value;
+  const dia = parseInt(document.getElementById("er-dia").value);
+  if (!nome) return aviso("Dê um nome à renda (ex.: Salário).", "erro");
+  if (!valorStr) return aviso("Informe o valor.", "erro");
+  const valor_centavos = paraCentavos(valorStr);
+  if (isNaN(valor_centavos) || valor_centavos <= 0) return aviso("Valor inválido.", "erro");
+  if (isNaN(dia) || dia < 1 || dia > 31) return aviso("Dia inválido (1 a 31).", "erro");
+  try {
+    await pedir("/entradas-recorrentes", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome, valor_centavos, dia }) });
+    document.getElementById("er-nome").value = ""; document.getElementById("er-valor").value = ""; document.getElementById("er-dia").value = "";
+    aviso("Renda automática criada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function apagarEntradaRecorrente(id) {
+  try { await pedir("/entradas-recorrentes/" + id, { method: "DELETE" }); aviso("Renda automática apagada.", "ok"); carregarTudo(); }
   catch (e) { aviso(e.message, "erro"); }
 }
 
