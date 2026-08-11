@@ -388,6 +388,21 @@ def saldo_da_caixinha(con, user_id, caixinha_id):
     ).fetchone()[0]
     return entrou - saiu
 
+# Saldo livre = entradas − alocado − saídas livres (pagamento sai da caixinha, não daqui;
+# rendimento é dinheiro novo na caixinha, também não conta). Mesma conta da rota /saldo-livre;
+# extraída em helper para as validações de "não deixar gastar/guardar sem dinheiro".
+def calcular_saldo_livre(con, user_id):
+    entradas = con.execute(
+        "SELECT COALESCE(SUM(valor_centavos),0) FROM lancamentos WHERE tipo='entrada' AND user_id=?", (user_id,)
+    ).fetchone()[0]
+    alocado = con.execute(
+        "SELECT COALESCE(SUM(valor_centavos),0) FROM lancamentos WHERE tipo='alocacao' AND user_id=?", (user_id,)
+    ).fetchone()[0]
+    saidas_livres = con.execute(
+        "SELECT COALESCE(SUM(valor_centavos),0) FROM lancamentos WHERE tipo='saida_livre' AND user_id=?", (user_id,)
+    ).fetchone()[0]
+    return entradas - alocado - saidas_livres
+
 # D: total de uma conta. Fatura = soma dos itens; simples = o valor guardado.
 def total_conta(con, user_id, conta_id, tipo_conta, valor_centavos):
     if tipo_conta == "fatura":
@@ -877,6 +892,32 @@ def criar_lancamento(item: NovoLancamento, user_id: str = Depends(exigir_login))
     if not data_valida(item.data):
         raise HTTPException(status_code=400, detail="Data inválida (use AAAA-MM-DD, ano entre 2000 e 2100).")
     con = conectar()
+
+    # Trava de saldo: não deixar guardar/gastar sem dinheiro.
+    # - alocacao (guardar na caixinha) e saida_livre (gasto do saldo livre) saem do SALDO LIVRE.
+    # - pagamento (gastar de uma caixinha) sai do SALDO DAQUELA CAIXINHA.
+    # entrada e rendimento adicionam dinheiro, não precisam de trava.
+    if item.tipo in ("alocacao", "saida_livre"):
+        livre = calcular_saldo_livre(con, user_id)
+        if item.valor_centavos > livre:
+            con.close()
+            acao = "guardar" if item.tipo == "alocacao" else "gastar"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Saldo livre insuficiente para {acao}: você tem R$ {livre/100:.2f} livre."
+            )
+    elif item.tipo == "pagamento":
+        if not item.caixinha_id:
+            con.close()
+            raise HTTPException(status_code=400, detail="Escolha de qual caixinha vai sair o gasto.")
+        saldo = saldo_da_caixinha(con, user_id, item.caixinha_id)
+        if item.valor_centavos > saldo:
+            con.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Saldo insuficiente nessa caixinha: ela tem R$ {saldo/100:.2f}."
+            )
+
     # usa a data escolhida (se veio) ou a de hoje
     data = item.data if item.data else data_hoje()
     con.execute(

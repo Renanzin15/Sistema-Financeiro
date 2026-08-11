@@ -1362,3 +1362,31 @@ foi avisado ao Renan antes de rodar; o destino só tinha teste/vazio.
 **Estado:** o app no Render agora tem os dados reais do Renan no Supabase, isolados pela conta dele.
 Próximo passo do Renan: entrar no site com o login (e-mail/senha do Supabase Auth) e conferir que as
 telas mostram os dados migrados.
+
+## Etapa 24 — Trava de saldo: não deixar guardar/gastar sem dinheiro (10/08/2026)
+
+Pedido do Renan: "toda vez que eu for colocar dinheiro numa caixinha, não conseguir se não tiver
+dinheiro — e o mesmo pra gastar, em todo o site." Era a pendência antiga das validações (faltava
+travar alocar/gastar avulso; transferir e pagar conta já travavam).
+
+**Onde:** todas as ações interativas de guardar/gastar passam por um ponto só — `POST /lancamentos`
+(`criar_lancamento`), com o `tipo` dizendo a ação. Então a trava entrou lá, cobrindo os 3 casos:
+- `alocacao` (guardar na caixinha) e `saida_livre` (gasto do saldo livre) → barram se `valor > saldo
+  livre`. Novo helper `calcular_saldo_livre(con, user_id)` (mesma conta da rota `/saldo-livre`,
+  extraída pra reuso): `entradas − alocado − saídas_livres`.
+- `pagamento` (gastar de uma caixinha) → barra se `valor > saldo_da_caixinha` (helper que já existia);
+  também barra se não escolheu caixinha.
+- `entrada` e `rendimento` adicionam dinheiro → sem trava.
+As mensagens dizem quanto há disponível (ex.: "Saldo livre insuficiente para guardar: você tem R$
+X livre."). O front já mostra isso: `pedir()` extrai o `detail` do 400 e as telas fazem `aviso(...)`.
+
+**Cobertura "todo o site":** `/transferir` (saldo da caixinha de origem) e `/contas/{id}/pagar`
+(saldo da caixinha que paga) **já validavam** — confirmado. O **importador** de extrato (OFX/CSV) e
+a criação de conta por OCR **continuam sem essa trava de propósito** (importar é histórico e insere
+direto no banco, não via `criar_lancamento`; conta é dívida, não saída de caixinha).
+
+**Testado (9/9 OK, SQLite isolado, chamando a função direto — sem depender de token do Supabase):**
+alocar sem saldo barra; entrada permite; alocar acima do livre barra; alocar dentro permite; gastar
+de caixinha acima do saldo dela barra; gastar dentro permite; saída livre acima do livre barra;
+saída livre dentro permite; pagamento sem caixinha barra. Saldos finais conferidos (livre R$ 0,10 e
+caixinha R$ 0,50, batendo com as contas). Só mudou o `main.py` (back-end); o front não precisou mudar.
