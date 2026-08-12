@@ -1465,3 +1465,15 @@ tem `aspect-ratio:1/1`, entao num painel largo as celulas viravam quadroes. Fixe
 `.principal { max-width: 1600px }` (conteudo nao estica infinito no zoom 25%). Testado com resize da
 viewport (= zoom): 380px (mobile/500%), 1280px, 2400px (25%) -> calendario ~40px/celula, `.principal`
 capa em 1600, e as 8 telas com ZERO overflow horizontal a 380px.
+
+### Etapa 31 — OCR no Render: detectar Tesseract + esconder painel + msg amigavel (10/08/2026)
+
+No site (Render/Linux) o "ler conta por foto" dava erro tecnico feio: o codigo forcava o caminho do
+Tesseract no Windows (`C:\Program Files\...`) e o Render nao tem Tesseract instalado. Fixes: (1) deteccao
+Linux-aware — usa TESSERACT_CMD, senao o caminho do Windows SE existir, senao "tesseract" no PATH; nova
+flag `OCR_PRONTO` = libs importam E o binario existe (`shutil.which`); (2) rota `GET /ocr-status`; o front
+(`carregarTudo`) esconde o painel "Ler conta por foto" quando `disponivel:false`; (3) mensagens tecnicas
+trocadas por "A leitura por foto ainda nao esta disponivel neste servidor; cadastre manualmente" (503).
+Testado: com binario ausente -> OCR_PRONTO False, /ocr-status false, rota 503 amigavel. Para HABILITAR o
+OCR no Render seria preciso um Dockerfile com `apt-get install tesseract-ocr tesseract-ocr-por` (deploy
+Docker) — oferecido ao Renan como opcao.

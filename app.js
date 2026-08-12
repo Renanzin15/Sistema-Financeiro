@@ -196,6 +196,11 @@ async function carregarTudo() {
   await Promise.all([carregarSaldoLivre(), carregarCaixinhas(), carregarContas(), carregarHistorico(), carregarAnalise(), carregarCategorias(), carregarStreak(), carregarRegras(), carregarEntradasRecorrentes()]);
   atualizarPainelBancos();
   verificarWrapped();   // E6: mostra a retrospectiva do mês passado (1x por sessão)
+  // esconde o leitor de conta por foto se o servidor não tiver OCR (ex.: Render sem Tesseract)
+  fetch("/ocr-status").then(r => r.json()).then(s => {
+    const p = document.getElementById("painel-ocr");
+    if (p) p.style.display = s.disponivel ? "" : "none";
+  }).catch(() => {});
 }
 
 async function carregarBancos() {

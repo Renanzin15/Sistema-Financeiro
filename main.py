@@ -40,14 +40,22 @@ except ImportError:
 #      Tesseract-OCR\tessdata), que já vem com o inglês.
 # Isso resolve o caso de não ter permissão de admin pra pôr o por.traineddata na
 # pasta padrão do Tesseract (aconteceu nesta máquina).
+TESSDATA_DIR = None
+OCR_PRONTO = False   # OCR só funciona se pytesseract E o binário do Tesseract existirem
 if OCR_DISPONIVEL:
-    pytesseract.pytesseract.tesseract_cmd = os.environ.get(
-        "TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-    )
+    import shutil as _shutil
+    _cmd = os.environ.get("TESSERACT_CMD")
+    if not _cmd:
+        _win = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        # no Windows usa o caminho padrão se existir; no Linux (Render) procura "tesseract" no PATH
+        _cmd = _win if os.path.exists(_win) else "tesseract"
+    pytesseract.pytesseract.tesseract_cmd = _cmd
     _tessdata_local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tessdata")
     TESSDATA_DIR = os.environ.get("TESSDATA_DIR") or (
         _tessdata_local if os.path.isdir(_tessdata_local) else None
     )
+    # o binário do Tesseract existe mesmo (no PATH ou no caminho dado)?
+    OCR_PRONTO = bool(_shutil.which(_cmd) or os.path.exists(_cmd))
 
 app = FastAPI()
 seguranca = HTTPBearer(auto_error=False)
@@ -1788,16 +1796,20 @@ def importar_analisar(item: ImportarAnalise, user_id: str = Depends(exigir_login
         linhas = parse_csv(item.conteudo, caixinhas)
     return {"linhas": linhas, "total": len(linhas)}
 
+@app.get("/ocr-status")
+def ocr_status():
+    # o front usa isto pra esconder o leitor de imagem quando o servidor não tem OCR
+    return {"disponivel": OCR_PRONTO}
+
 @app.post("/importar/conta-imagem")
 def importar_conta_imagem(item: ImportarContaImagem, user_id: str = Depends(exigir_login)):
     """Lê uma foto/print ou PDF de conta e devolve uma prévia (nome, valor, vencimento)
     pra o usuário conferir/corrigir antes de criar a conta de verdade via POST /contas."""
-    if not OCR_DISPONIVEL:
+    if not OCR_PRONTO:
         raise HTTPException(
-            status_code=500,
-            detail="Leitor de conta por imagem não está instalado neste servidor. "
-                    "Rode: pip install pytesseract Pillow PyMuPDF, e instale o Tesseract "
-                    "(ver estudo_ocr_conta_imagem.md)."
+            status_code=503,
+            detail="A leitura de conta por foto ainda não está disponível neste servidor. "
+                   "Por enquanto, cadastre a conta manualmente na tela Dívidas."
         )
     conteudo = item.conteudo
     if "," in conteudo and conteudo.strip().startswith("data:"):
@@ -1818,9 +1830,9 @@ def importar_conta_imagem(item: ImportarContaImagem, user_id: str = Depends(exig
             texto = ocr_texto_imagem(dados)
     except pytesseract.TesseractNotFoundError:
         raise HTTPException(
-            status_code=500,
-            detail="Tesseract não encontrado no caminho configurado. Verifique a instalação "
-                    "(ver estudo_ocr_conta_imagem.md) ou defina a variável de ambiente TESSERACT_CMD."
+            status_code=503,
+            detail="A leitura de conta por foto ainda não está disponível neste servidor. "
+                   "Por enquanto, cadastre a conta manualmente na tela Dívidas."
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Não consegui ler o arquivo: {e}")
