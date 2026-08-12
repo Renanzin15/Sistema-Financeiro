@@ -64,12 +64,16 @@
       <div class="rot">Entradas do mês</div>
       <div class="num verde" id="ct-entradas">—</div>
     </div>
-    <div class="card-topo">
+    <div class="card-topo card-link" role="button" tabindex="0" title="Abrir Caixinhas"
+         onclick="irPara('caixinhas')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();irPara('caixinhas')}">
+      <span class="ct-seta" aria-hidden="true">→</span>
       <span class="ct-ico" data-ico="caixinha" data-ico-size="17"></span>
       <div class="rot">Guardado em caixinhas</div>
       <div class="num" id="ct-alocado">—</div>
     </div>
-    <div class="card-topo">
+    <div class="card-topo card-link" role="button" tabindex="0" title="Abrir Dívidas"
+         onclick="irPara('contas')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();irPara('contas')}">
+      <span class="ct-seta" aria-hidden="true">→</span>
       <span class="ct-ico" data-ico="dividas" data-ico-size="17"></span>
       <div class="rot">Contas a pagar</div>
       <div class="num vermelho" id="ct-contas">—</div>

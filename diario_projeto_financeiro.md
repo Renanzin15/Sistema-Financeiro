@@ -1542,3 +1542,14 @@ larguras (= niveis de zoom). Diagnostico e fix:
 Medicoes finais (viewport => resultado): 960 => trilho limpo, sem spill; 1920 => preenche 1688, vao 0,
 toggle esconde e conteudo ocupa 1920; 2400 => preenche 2168, vao 0; 2900 => capa 2400, vao dir 268, sem
 overflow. So front-end (index.html + styles.css), nada no back/DB.
+
+### Etapa 36 — Atalho: cards do topo levam pra Caixinhas e Dividas (12/08/2026)
+
+Pedido do Renan: um atalho pra Caixinhas e Dividas no dashboard. Em vez de botao novo, transformei os
+dois cards de resumo do topo (que ja mostram os valores) em atalhos clicaveis: "Guardado em caixinhas" ->
+tela Caixinhas, "Contas a pagar" -> tela Dividas. Cada card ganhou `role=button`, `tabindex=0`, uma seta
+(->) no canto (opacity .5, vai a 1 no hover/foco) e navegacao por teclado (Enter/Espaco). No app.js, a
+funcao `irPara(tela)` reaproveita o clique do `.item-menu` correspondente (mantendo o highlight do menu e
+o titulo em sincronia) e da um scrollTo topo suave. Como o `.cards-topo` fica fora das `<section>`, o
+atalho vale de qualquer tela — bonus. Testado no browser: clicar em cada card troca tela/menu/titulo
+certos; 2 setas presentes. So front-end (index.html + styles.css + app.js).

@@ -1700,6 +1700,12 @@ document.querySelectorAll(".item-menu").forEach(item => {
   });
 });
 
+// atalho: navega para uma tela reaproveitando o clique do menu lateral
+function irPara(tela) {
+  const item = document.querySelector('.item-menu[data-tela="' + tela + '"]');
+  if (item) { item.click(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+}
+
 // recolher/mostrar o menu lateral (salva a escolha)
 function toggleMenu() {
   const oculto = document.body.classList.toggle("menu-oculto");

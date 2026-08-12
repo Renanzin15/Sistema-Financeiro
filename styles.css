@@ -108,6 +108,14 @@
     transition: transform .22s var(--ease), box-shadow .22s var(--ease);
   }
   .card-topo:hover { transform: translateY(-3px); box-shadow: var(--sh-lift); }
+  /* cards que funcionam como atalho (levam pra outra tela) */
+  .card-link { cursor: pointer; }
+  .card-link:focus-visible { outline: 2px solid var(--roxo-claro); outline-offset: 2px; }
+  .card-link .ct-seta {
+    position: absolute; top: 16px; right: 16px; font-size: 17px; line-height: 1; color: var(--faint);
+    opacity: .5; transform: translateX(-3px); transition: opacity .2s var(--ease), transform .2s var(--ease), color .2s var(--ease);
+  }
+  .card-link:hover .ct-seta, .card-link:focus-visible .ct-seta { opacity: 1; transform: translateX(0); color: var(--roxo-claro); }
   .card-topo.hero { background: linear-gradient(150deg, rgba(124,92,255,.20), rgba(124,92,255,0) 55%), var(--painel); }
   .card-topo .ct-ico {
     width: 32px; height: 32px; border-radius: 10px; display: inline-flex; align-items: center;
