@@ -1,5 +1,12 @@
 # Manual do usuário — Meu Orçamento
 
+> ⚠️ **Atualização (fase SaaS, 10/08/2026):** o app virou **multi-usuário, hospedado no Render/Supabase**.
+> O **login agora é por e-mail e senha** (Supabase Auth) — não é mais senha única, e cada usuário é criado
+> manualmente no Supabase. Novidade: **Entradas automáticas** (renda recorrente que lança sozinha e já
+> distribui nas caixinhas — fica na tela **Regras**). O resto do dia a dia (caixinhas, dívidas, importar
+> com filtro de mês, etc.) segue igual. Parte técnica atualizada em `documentacao_tecnica.md`; histórico
+> no `diario_projeto_financeiro.md` (Etapas 23–32).
+
 > Guia prático de **como usar o app** no dia a dia (atualizado em 06/08/2026, reflete o estado atual).
 > Para a parte técnica (dados, rotas, código), ver `documentacao_tecnica.md`. Para o histórico de
 > decisões, `diario_projeto_financeiro.md`.

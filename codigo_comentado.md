@@ -1,5 +1,13 @@
 # Código comentado — `main.py` (estado atual)
 
+> ⚠️ **Atualização (fase SaaS, 10/08/2026):** este passo-a-passo foi escrito na fase SQLite single-user.
+> Desde então o `main.py` mudou muito: **banco Postgres/Supabase** (com wrapper `_ConexaoPG` que traduz
+> `?`→`%s`, e fallback SQLite), **autenticação Supabase Auth** (`_verificar_token` valida ES256 via JWKS,
+> HS256 reserva; `exigir_login` devolve o `user_id`), **isolamento por `user_id`** em toda query,
+> `config` por usuário, e a tabela nova `entradas_recorrentes`. Os padrões de cada bloco continuam válidos,
+> mas para a arquitetura/rotas/schema **atuais** a referência é o `documentacao_tecnica.md`; o "porquê" das
+> mudanças está no `diario_projeto_financeiro.md` (Etapas 23–32).
+
 > Passo-a-passo explicado do back-end **como ele é hoje** (atualizado em 06/08/2026, após a Etapa 20 +
 > validações de entrada). Mostra os blocos mais importantes com o código real e uma explicação antes de
 > cada um. As rotas de CRUD repetitivas (criar/listar/apagar) seguem sempre o mesmo padrão e são
