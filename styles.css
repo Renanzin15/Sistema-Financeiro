@@ -52,6 +52,7 @@
   .marca {
     font-size: 15px; font-weight: 700; letter-spacing: 0.02em; color: var(--texto);
     padding: 2px 12px 22px; display: flex; align-items: center; gap: 10px;
+    overflow: hidden; white-space: nowrap;
   }
   .marca::before {
     content: ""; width: 30px; height: 30px; border-radius: 10px; flex-shrink: 0;
@@ -92,8 +93,9 @@
   /* menu recolhido: some a lateral e o conteúdo ocupa a largura toda */
   body.menu-oculto .lateral { display: none; }
 
-  /* área principal — centralizada para não deixar um vão vazio quando a tela fica larga (zoom baixo) */
-  .principal { flex: 1; padding: 26px 32px 60px; width: 100%; max-width: 1600px; margin-inline: auto; min-width: 0; overflow-x: hidden; }
+  /* área principal — alinhada à esquerda (cola na lateral, sem vão) e preenche a largura;
+     o teto alto evita espaço vazio no zoom baixo sem esticar demais no zoom extremo */
+  .principal { flex: 1; padding: 26px 32px 60px; width: 100%; max-width: 2400px; min-width: 0; overflow-x: hidden; }
   .topo { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
   .topo h1 { font-size: 23px; font-weight: 700; letter-spacing: -0.01em; }
   .topo .data { font-size: 13px; color: var(--faint); margin-top: 3px; }

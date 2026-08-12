@@ -1516,3 +1516,29 @@ adaptar melhor conforme tira/poe zoom. Fixes:
 
 Arquivos: index.html, styles.css, app.js. So front-end, nada no back/DB. Assets tem `Cache-Control:
 no-store`, entao basta recarregar.
+
+### Etapa 35 — Revisao do zoom: bug no 200%, vao vazio e botao "andando" (12/08/2026)
+
+Feedback do Renan (3 prints) sobre a Etapa 34: (1) em 200% "bugava a tela", (2) abaixo de 100% ficava com
+espacos vazios e (3) o botao de esconder o painel "mudava de lugar" (marcou em vermelho um vao entre a
+lateral e o conteudo). Testei ao vivo com http.server local + browser, medindo a geometria em varias
+larguras (= niveis de zoom). Diagnostico e fix:
+
+- **Bug do 200% (trilho):** em ~960px o breakpoint de 1000px vira a lateral num trilho de 66px e esconde
+  os rotulos via `.marca span, .item-menu span { display:none }`. So que o texto "Orcamento" da marca
+  estava solto na div (nao num span), entao nao sumia e VAZAVA pra fora do trilho (scrollWidth 80 x 35 de
+  largura), invadindo a topbar. Fix: envolvi "Orcamento" num `<span>` (index.html) + `overflow:hidden;
+  white-space:nowrap` na `.marca` (styles.css). Medido: marcaSpill agora false, zero overflow horizontal.
+
+- **Vao vazio + botao andando:** a Etapa 34 tinha posto `margin-inline:auto` no `.principal` pra
+  centralizar. Só que com o teto de 1600px numa tela larga isso criava dois vaos — e o vao da ESQUERDA
+  (entre a lateral e o conteudo) era exatamente o retangulo vermelho: o botao hamburger, que fica no
+  inicio do conteudo, "descia" pra depois desse buraco. Fix: tirei o `margin-inline:auto` (conteudo volta
+  a colar na lateral, alinhado a esquerda) e subi o teto pra `max-width:2400px`. Assim, na faixa real de
+  zoom do Renan (70-100% => viewport ~1920-2740px) o conteudo PREENCHE a tela com zero vao e o botao fica
+  colado na lateral. Só abaixo de ~70% sobra um vao pequeno a direita (2900px => 268px), e o teto de 2400
+  evita cards gigantes no zoom extremo (25%).
+
+Medicoes finais (viewport => resultado): 960 => trilho limpo, sem spill; 1920 => preenche 1688, vao 0,
+toggle esconde e conteudo ocupa 1920; 2400 => preenche 2168, vao 0; 2900 => capa 2400, vao dir 268, sem
+overflow. So front-end (index.html + styles.css), nada no back/DB.
