@@ -1456,3 +1456,12 @@ mes. Ai a assinatura ficava cobrada na fatura E como conta avulsa (que o `gerar_
 dava pra pagar as duas (ou mais, em ciclos de vincular/desvincular). Fix: ao desvincular ou TROCAR de
 fatura, remove o `fatura_itens` daquele mes da fatura antiga (se nao paga). Testado 3/3 SQLite. Nota:
 corrige daqui pra frente; duplicatas ja criadas antes o usuario apaga/desfaz na mao.
+
+### Etapa 30 — Responsividade/zoom: calendario e largura do conteudo (10/08/2026)
+
+Print do Renan: em zoom baixo (tela larga) o calendario esticava com celulas gigantes. Causa: `.cal-dia`
+tem `aspect-ratio:1/1`, entao num painel largo as celulas viravam quadroes. Fixes (so styles.css):
+`#cal-widget { max-width: 340px }` (calendario nao passa disso, mas encolhe no mobile) e
+`.principal { max-width: 1600px }` (conteudo nao estica infinito no zoom 25%). Testado com resize da
+viewport (= zoom): 380px (mobile/500%), 1280px, 2400px (25%) -> calendario ~40px/celula, `.principal`
+capa em 1600, e as 8 telas com ZERO overflow horizontal a 380px.
