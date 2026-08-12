@@ -1790,11 +1790,18 @@ def importar_analisar(item: ImportarAnalise, user_id: str = Depends(exigir_login
     con = conectar()
     caixinhas = [(c[0], (c[1] or "").lower()) for c in con.execute("SELECT id, nome FROM caixinhas WHERE user_id=?", (user_id,)).fetchall()]
     con.close()
+    saldo_conta = None
     if item.tipo_arquivo == "ofx":
         linhas = parse_ofx(item.conteudo, caixinhas)
+        # saldo da conta no extrato (<LEDGERBAL><BALAMT>), pra oferecer como "Saldo inicial"
+        m = re.search(r"<LEDGERBAL>.*?<BALAMT>([^<\r\n]+)", item.conteudo, re.S | re.I)
+        if m:
+            v = _num_br(m.group(1))
+            if v is not None:
+                saldo_conta = round(v, 2)
     else:
         linhas = parse_csv(item.conteudo, caixinhas)
-    return {"linhas": linhas, "total": len(linhas)}
+    return {"linhas": linhas, "total": len(linhas), "saldo_conta_reais": saldo_conta}
 
 @app.get("/ocr-status")
 def ocr_status():

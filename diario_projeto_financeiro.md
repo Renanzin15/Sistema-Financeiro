@@ -1485,3 +1485,11 @@ de `/saldo-livre` como `alocado = SUM(alocacao)` (total ja alocado, sem desconta
 caixinhas). Fix (so app.js): o card agora e a SOMA dos saldos ATUAIS das caixinhas (`TODAS_CAIXINHAS`
 .saldo_reais, que ja e alocacao+rendimento - pagamento). Tirei o `ct-alocado` do carregarSaldoLivre e
 pus no carregarCaixinhas. Transferencia entre caixinhas continua neutra (sai de uma, entra em outra).
+
+### Etapa 33 — Importar OFX: botao "Saldo inicial" (10/08/2026)
+
+Importar extrato num app base-zero deixava o saldo livre negativo (gastos do banco viram saida_livre,
+mas o dinheiro que os pagou — o saldo da conta — nao existe no app). Fix: `importar/analisar` le o
+`<LEDGERBAL><BALAMT>` do OFX e devolve `saldo_conta_reais`; a previa mostra um botao "Adicionar Saldo
+inicial de R$ X" que cria uma entrada com esse valor, tirando o livre do negativo. Testado no OFX real
+(saldo 2093.82).

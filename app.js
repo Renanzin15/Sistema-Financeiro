@@ -1517,6 +1517,7 @@ function arquivoSelecionado(ev) {
 }
 
 let importMes = null;   // mês escolhido no filtro de importação ("AAAA-MM", "sem-data" ou "todos")
+let importSaldoConta = null;   // saldo da conta no extrato OFX (oferecido como "Saldo inicial")
 function mesDaLinha(l) { return (l.data && l.data !== "?") ? l.data.slice(0, 7) : "sem-data"; }
 function aplicarFiltroMesImport() { importLinhas.forEach(l => l.incluir = (importMes === "todos" || mesDaLinha(l) === importMes)); }
 
@@ -1529,6 +1530,7 @@ function lerArquivoImport(file) {
       const resp = await pedir("/importar/analisar", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conteudo: reader.result, tipo_arquivo: tipo }) });
       importLinhas = resp.linhas.map(l => ({ ...l, incluir: true }));
+      importSaldoConta = (resp.saldo_conta_reais != null) ? resp.saldo_conta_reais : null;
       // por padrão, importa só o MÊS ATUAL (evita puxar o ano inteiro de uma vez)
       const agora = new Date();
       const mesAtual = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
@@ -1540,6 +1542,18 @@ function lerArquivoImport(file) {
   };
   reader.onerror = () => aviso("Não consegui ler o arquivo.", "erro");
   reader.readAsText(file, "utf-8");
+}
+
+// registra o saldo da conta (do extrato) como uma entrada "Saldo inicial" — tira o saldo livre do negativo
+async function adicionarSaldoInicial() {
+  if (importSaldoConta == null) return;
+  try {
+    await pedir("/lancamentos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "entrada", valor_centavos: Math.round(importSaldoConta * 100), descricao: "Saldo inicial" }) });
+    aviso("Saldo inicial adicionado.", "ok");
+    importSaldoConta = null;
+    carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
 }
 
 function renderImportPreview() {
@@ -1564,7 +1578,14 @@ function renderImportPreview() {
 
   const visiveis = importLinhas.map((l, i) => ({ l, i })).filter(({ l }) => importMes === "todos" || mesDaLinha(l) === importMes);
 
-  let html = `<div class="barra-hist" style="margin:18px 0 6px">
+  let html = "";
+  if (importSaldoConta != null) {
+    html += `<div class="painel" style="margin:14px 0 4px;padding:14px 16px">
+      <div class="sub" style="margin-bottom:8px">Saldo da conta no extrato: <b style="color:var(--texto)">${reais(importSaldoConta)}</b>. Como o app é orçamento base-zero, importar só os gastos deixa o saldo livre negativo — adicione o saldo da conta como ponto de partida.</div>
+      <button class="acao pequeno" onclick="adicionarSaldoInicial()">Adicionar "Saldo inicial" de ${reais(importSaldoConta)}</button>
+    </div>`;
+  }
+  html += `<div class="barra-hist" style="margin:18px 0 6px">
     <div class="sub">Importar o mês:</div>
     <select class="busca-hist" style="min-width:190px" onchange="importMes=this.value;aplicarFiltroMesImport();renderImportPreview()">${opcoes.join("")}</select>
   </div>`;
