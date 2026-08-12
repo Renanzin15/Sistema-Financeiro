@@ -1493,3 +1493,26 @@ mas o dinheiro que os pagou — o saldo da conta — nao existe no app). Fix: `i
 `<LEDGERBAL><BALAMT>` do OFX e devolve `saldo_conta_reais`; a previa mostra um botao "Adicionar Saldo
 inicial de R$ X" que cria uma entrada com esse valor, tirando o livre do negativo. Testado no OFX real
 (saldo 2093.82).
+
+### Etapa 34 — Recolher menu lateral + centralizar conteudo no zoom baixo (12/08/2026)
+
+Dois pedidos do Renan (prints em 200% e 50% de zoom): (1) poder esconder o painel lateral e (2) a tela
+adaptar melhor conforme tira/poe zoom. Fixes:
+
+- **Botao de recolher menu** (index.html + styles.css + app.js): botao hamburger no topo, ao lado do
+  titulo, sempre visivel (inclusive com o menu escondido, pra trazer de volta). `toggleMenu()` poe/tira
+  a classe `menu-oculto` no `<body>` (`body.menu-oculto .lateral { display:none }`) e salva no
+  localStorage (`sb_menu_oculto`), entao persiste no reload. Atalho de teclado tecla **M** (junto dos
+  E/G que ja existiam). Com o menu escondido o conteudo ocupa a largura toda automatico (body e flex,
+  `.principal` e flex:1).
+
+- **Zoom baixo (tela larga) deixava um vao vazio a direita**: a Etapa 30 ja tinha posto
+  `.principal { max-width:1600px }`, mas sem margem o conteudo ficava grudado a esquerda e sobrava um
+  buraco enorme a direita (era o que a print de 50% mostrava). Fix: `margin-inline:auto` no `.principal`
+  — agora centraliza quando a viewport passa de 1600 e continua se ajustando no zoom. Tambem adicionei um
+  breakpoint em 640px (cards de resumo viram 1 coluna, padding menor, topo com flex-wrap) pra ficar mais
+  suave no zoom alto. O breakpoint de 1000px (menu vira trilho de icones) ja existia — e o que aparece na
+  print de 200%, comportamento correto.
+
+Arquivos: index.html, styles.css, app.js. So front-end, nada no back/DB. Assets tem `Cache-Control:
+no-store`, entao basta recarregar.

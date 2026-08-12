@@ -1700,6 +1700,14 @@ document.querySelectorAll(".item-menu").forEach(item => {
   });
 });
 
+// recolher/mostrar o menu lateral (salva a escolha)
+function toggleMenu() {
+  const oculto = document.body.classList.toggle("menu-oculto");
+  localStorage.setItem("sb_menu_oculto", oculto ? "1" : "0");
+}
+// restaura o estado salvo do menu ao abrir
+if (localStorage.getItem("sb_menu_oculto") === "1") document.body.classList.add("menu-oculto");
+
 // F3: filtros e busca do histórico
 document.querySelectorAll(".filtros-hist .chip").forEach(chip => {
   chip.addEventListener("click", () => {
@@ -1738,6 +1746,9 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     document.querySelector('.item-menu[data-tela="caixinhas"]').click();
     const el = document.getElementById("g-desc"); if (el) el.focus();
+  } else if (e.key === "m" || e.key === "M") {
+    e.preventDefault();
+    toggleMenu();
   }
 });
 // E9: Enter salva no campo de valor de cada formulário

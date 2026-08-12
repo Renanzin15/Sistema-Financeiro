@@ -76,8 +76,24 @@
   }
   .item-menu .ico { width: 20px; display: inline-flex; align-items: center; justify-content: center; }
 
-  /* área principal */
-  .principal { flex: 1; padding: 26px 32px 60px; max-width: 1600px; min-width: 0; overflow-x: hidden; }
+  /* botão de recolher o menu lateral */
+  .btn-menu {
+    width: 40px; height: 40px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    background: var(--painel); border: 1px solid var(--borda); border-radius: var(--r-ctl); cursor: pointer;
+    color: var(--texto2); transition: background .2s var(--ease), color .2s var(--ease), transform .12s var(--ease);
+    margin-bottom: 2px;
+  }
+  .btn-menu:hover { background: var(--painel2); color: var(--texto); }
+  .btn-menu:active { transform: scale(.94); }
+  .ico-menu { position: relative; width: 18px; height: 2px; background: currentColor; border-radius: 2px; transition: background .15s var(--ease); }
+  .ico-menu::before, .ico-menu::after { content: ""; position: absolute; left: 0; width: 18px; height: 2px; background: currentColor; border-radius: 2px; }
+  .ico-menu::before { top: -6px; } .ico-menu::after { top: 6px; }
+
+  /* menu recolhido: some a lateral e o conteúdo ocupa a largura toda */
+  body.menu-oculto .lateral { display: none; }
+
+  /* área principal — centralizada para não deixar um vão vazio quando a tela fica larga (zoom baixo) */
+  .principal { flex: 1; padding: 26px 32px 60px; width: 100%; max-width: 1600px; margin-inline: auto; min-width: 0; overflow-x: hidden; }
   .topo { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
   .topo h1 { font-size: 23px; font-weight: 700; letter-spacing: -0.01em; }
   .topo .data { font-size: 13px; color: var(--faint); margin-top: 3px; }
@@ -105,7 +121,8 @@
 
   /* grid de painéis */
   .paineis { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; align-items: start; }
-  @media (max-width: 1000px) { .paineis { grid-template-columns: 1fr; } .cards-topo { grid-template-columns: repeat(2,1fr); } .lateral { width: 66px; } .marca span, .item-menu span { display:none; } .marca { justify-content:center; padding-left:0; padding-right:0; } }
+  @media (max-width: 1000px) { .paineis { grid-template-columns: 1fr; } .cards-topo { grid-template-columns: repeat(2,1fr); } .lateral { width: 66px; } .marca span, .item-menu span { display:none; } .marca { justify-content:center; padding-left:0; padding-right:0; } .principal { padding: 22px 22px 50px; } }
+  @media (max-width: 640px) { .cards-topo { grid-template-columns: 1fr; } .principal { padding: 18px 15px 44px; } .topo { flex-wrap: wrap; } }
 
   .painel {
     background: var(--painel); border: 1px solid var(--borda); border-radius: var(--r-card);

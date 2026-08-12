@@ -35,9 +35,14 @@
 
 <main class="principal">
   <div class="topo">
-    <div>
-      <h1 id="titulo-tela">Visão geral</h1>
-      <div class="data" id="data-hoje"></div>
+    <div style="display:flex;align-items:flex-end;gap:14px">
+      <button class="btn-menu" id="btn-toggle-menu" onclick="toggleMenu()" title="Mostrar/ocultar menu (tecla M)" aria-label="Mostrar ou ocultar menu">
+        <span class="ico-menu"></span>
+      </button>
+      <div>
+        <h1 id="titulo-tela">Visão geral</h1>
+        <div class="data" id="data-hoje"></div>
+      </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px">
       <label style="font-size:13px;color:var(--texto2)">Banco:</label>
