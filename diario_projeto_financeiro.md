@@ -1439,3 +1439,11 @@ Um amigo do Renan testou o importador de extrato e o mês inteiro veio inflado c
 
 Só front + `_data_iso`; o `importar/confirmar` segue com o fallback "hoje" só pra linhas que o usuário
 escolher explicitamente na aba "sem data".
+
+### Etapa 28 — Split do front em 3 arquivos (economia de tokens) (10/08/2026)
+
+O `index.html` tinha ~2.500 linhas (HTML+CSS+JS+fonte base64). Separei em **index.html + styles.css +
+app.js** (a fonte Inter foi pro styles.css). Rotas `GET /styles.css` e `GET /app.js` no `main.py`
+(content-type certo + no-store). Como o app agora é hospedado, servir 3 arquivos é trivial. Ganho:
+toda edicao de front passa a ler/mexer so no arquivo certo (JS no app.js, estilo no styles.css) em vez
+do monstro unico. Testado: CSS aplicado, Inter carrega, JS roda, zero erros — app identico.

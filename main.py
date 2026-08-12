@@ -944,6 +944,14 @@ def servir_pagina():
     # mantém /app funcionando também (mesma página da raiz).
     return FileResponse("index.html", headers={"Cache-Control": "no-store"})
 
+@app.get("/styles.css")
+def servir_css():
+    return FileResponse("styles.css", media_type="text/css", headers={"Cache-Control": "no-store"})
+
+@app.get("/app.js")
+def servir_js():
+    return FileResponse("app.js", media_type="application/javascript", headers={"Cache-Control": "no-store"})
+
 # ---- autenticação ----
 # O login é feito pelo Supabase Auth direto no front (o front chama o Supabase e recebe o
 # access_token). O back apenas VERIFICA esse token (ver exigir_login). Sem rota de senha aqui.
