@@ -1477,3 +1477,11 @@ trocadas por "A leitura por foto ainda nao esta disponivel neste servidor; cadas
 Testado: com binario ausente -> OCR_PRONTO False, /ocr-status false, rota 503 amigavel. Para HABILITAR o
 OCR no Render seria preciso um Dockerfile com `apt-get install tesseract-ocr tesseract-ocr-por` (deploy
 Docker) — oferecido ao Renan como opcao.
+
+### Etapa 32 — "Guardado em caixinhas" desconta os gastos (10/08/2026)
+
+Pedido do Renan: ao gastar de uma caixinha, o card "Guardado em caixinhas" tem que cair. Estava vindo
+de `/saldo-livre` como `alocado = SUM(alocacao)` (total ja alocado, sem descontar pagamentos das
+caixinhas). Fix (so app.js): o card agora e a SOMA dos saldos ATUAIS das caixinhas (`TODAS_CAIXINHAS`
+.saldo_reais, que ja e alocacao+rendimento - pagamento). Tirei o `ct-alocado` do carregarSaldoLivre e
+pus no carregarCaixinhas. Transferencia entre caixinhas continua neutra (sai de uma, entra em outra).

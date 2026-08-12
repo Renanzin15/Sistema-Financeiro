@@ -261,7 +261,7 @@ async function apagarBanco(id) {
 async function carregarSaldoLivre() {
   const s = await pedir("/saldo-livre");
   document.getElementById("ct-saldo-livre").textContent = reais(s.saldo_livre_reais);
-  document.getElementById("ct-alocado").textContent = reais(s.alocado_reais);
+  // "Guardado em caixinhas" (ct-alocado) é preenchido por carregarCaixinhas (soma dos saldos ATUAIS)
   // "Entradas do mês" (ct-entradas) é preenchido por carregarAnalise (só o mês atual, não o total)
   document.getElementById("ct-estado-livre").textContent =
     s.tudo_distribuido ? "Tudo distribuído ✓" : "Ainda há dinheiro sem destino";
@@ -270,6 +270,9 @@ async function carregarSaldoLivre() {
 async function carregarCaixinhas() {
   const todas = await pedir("/caixinhas");
   TODAS_CAIXINHAS = todas;
+  // "Guardado em caixinhas" = soma dos saldos ATUAIS (cai quando você gasta de uma caixinha)
+  const guardado = todas.reduce((acc, c) => acc + (c.saldo_reais || 0), 0);
+  document.getElementById("ct-alocado").textContent = reais(guardado);
   const modoTodos = (bancoSelecionado === "todos");
   CAIXINHAS = modoTodos ? todas : todas.filter(c => c.banco_id === bancoSelecionado);
   // mapa de id do banco -> nome, pra etiqueta
