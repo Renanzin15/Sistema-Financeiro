@@ -570,17 +570,33 @@ def _num_br(s):
         return None
     return -v if neg else v
 
+_MESES_PT = {"jan": "01", "fev": "02", "mar": "03", "abr": "04", "mai": "05", "jun": "06",
+             "jul": "07", "ago": "08", "set": "09", "out": "10", "nov": "11", "dez": "12"}
+
 def _data_iso(s):
-    """Normaliza datas comuns (dd/mm/aaaa, aaaa-mm-dd, dd/mm/aa) para AAAA-MM-DD, ou '?'."""
+    """Normaliza datas de extrato para AAAA-MM-DD (ou '?'). Cobre vários formatos de banco:
+    aaaa-mm-dd (com ou sem hora), aaaa/mm/dd, dd/mm/aaaa, dd-mm-aaaa, dd.mm.aaaa, dd/mm/aa,
+    e 'dd mmm[ aaaa]' / 'dd de mmm[ de aaaa]' em português (ex.: '15 ago 2026')."""
     s = (s or "").strip()
-    m = re.match(r"^(\d{2})/(\d{2})/(\d{4})$", s)
+    if not s:
+        return "?"
+    # ISO (pega só a data, ignora hora): aaaa-mm-dd... ou aaaa/mm/dd...
+    m = re.match(r"^(\d{4})[/-](\d{2})[/-](\d{2})", s)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    # dd[/-.]mm[/-.]aaaa
+    m = re.match(r"^(\d{2})[/\-.](\d{2})[/\-.](\d{4})$", s)
     if m:
         return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
-        return s
-    m = re.match(r"^(\d{2})/(\d{2})/(\d{2})$", s)
+    # dd[/-.]mm[/-.]aa
+    m = re.match(r"^(\d{2})[/\-.](\d{2})[/\-.](\d{2})$", s)
     if m:
         return f"20{m.group(3)}-{m.group(2)}-{m.group(1)}"
+    # dd mmm[ aaaa] / dd de mmm[ de aaaa] (mês em texto, pt)
+    m = re.match(r"^(\d{1,2})\s*(?:de\s+)?([a-zç]{3})[a-zç]*\.?(?:\s+(?:de\s+)?(\d{4}))?$", s.lower())
+    if m and m.group(2) in _MESES_PT:
+        ano = m.group(3) or str(date.today().year)
+        return f"{ano}-{_MESES_PT[m.group(2)]}-{int(m.group(1)):02d}"
     return "?"
 
 def _sugerir_caixinha(descricao, caixinhas):

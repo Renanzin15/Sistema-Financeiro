@@ -999,8 +999,8 @@ async function apagarBanco(id) {
 async function carregarSaldoLivre() {
   const s = await pedir("/saldo-livre");
   document.getElementById("ct-saldo-livre").textContent = reais(s.saldo_livre_reais);
-  document.getElementById("ct-entradas").textContent = reais(s.entradas_reais);
   document.getElementById("ct-alocado").textContent = reais(s.alocado_reais);
+  // "Entradas do mês" (ct-entradas) é preenchido por carregarAnalise (só o mês atual, não o total)
   document.getElementById("ct-estado-livre").textContent =
     s.tudo_distribuido ? "Tudo distribuído ✓" : "Ainda há dinheiro sem destino";
 }
@@ -1659,6 +1659,7 @@ async function carregarAnalise() {
   const sobrou = entrou - saiu;
 
   document.getElementById("an-entrou").textContent = reais(entrou);
+  document.getElementById("ct-entradas").textContent = reais(entrou);   // card do topo = entradas SÓ do mês atual
   document.getElementById("an-saiu").textContent = reais(saiu);
   document.getElementById("an-sobrou").textContent = reais(sobrou);
   document.getElementById("analise-mes").textContent =
@@ -2250,6 +2251,10 @@ function arquivoSelecionado(ev) {
   ev.target.value = "";   // permite re-selecionar o mesmo arquivo
 }
 
+let importMes = null;   // mês escolhido no filtro de importação ("AAAA-MM", "sem-data" ou "todos")
+function mesDaLinha(l) { return (l.data && l.data !== "?") ? l.data.slice(0, 7) : "sem-data"; }
+function aplicarFiltroMesImport() { importLinhas.forEach(l => l.incluir = (importMes === "todos" || mesDaLinha(l) === importMes)); }
+
 function lerArquivoImport(file) {
   const nome = (file.name || "").toLowerCase();
   const tipo = nome.endsWith(".ofx") ? "ofx" : "csv";
@@ -2259,6 +2264,12 @@ function lerArquivoImport(file) {
       const resp = await pedir("/importar/analisar", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conteudo: reader.result, tipo_arquivo: tipo }) });
       importLinhas = resp.linhas.map(l => ({ ...l, incluir: true }));
+      // por padrão, importa só o MÊS ATUAL (evita puxar o ano inteiro de uma vez)
+      const agora = new Date();
+      const mesAtual = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
+      const mesesReais = [...new Set(importLinhas.map(mesDaLinha))].filter(m => m !== "sem-data").sort();
+      importMes = mesesReais.includes(mesAtual) ? mesAtual : (mesesReais[mesesReais.length - 1] || "todos");
+      aplicarFiltroMesImport();
       renderImportPreview();
     } catch (e) { aviso(e.message, "erro"); }
   };
@@ -2272,8 +2283,28 @@ function renderImportPreview() {
     el.innerHTML = '<div class="vazio">Nenhum lançamento reconhecido. Tente um arquivo <b>.ofx</b> ou um <b>.csv</b> com colunas de data, descrição e valor.</div>';
     return;
   }
-  let html = `<div class="sub" style="margin:18px 0 10px">${importLinhas.length} lançamento(s) encontrados. Revise, escolha a caixinha e importe:</div>`;
-  html += importLinhas.map((l, i) => {
+  // seletor de mês (evita importar o extrato do ano inteiro de uma vez)
+  const mesesReais = [...new Set(importLinhas.map(mesDaLinha))].filter(m => m !== "sem-data").sort().reverse();
+  let opcoes = mesesReais.map(m => {
+    const [y, mm] = m.split("-");
+    const lbl = new Date(+y, +mm - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    const n = importLinhas.filter(l => mesDaLinha(l) === m).length;
+    return `<option value="${m}" ${importMes === m ? "selected" : ""}>${lbl} (${n})</option>`;
+  });
+  if (importLinhas.some(l => mesDaLinha(l) === "sem-data")) {
+    const n = importLinhas.filter(l => mesDaLinha(l) === "sem-data").length;
+    opcoes.push(`<option value="sem-data" ${importMes === "sem-data" ? "selected" : ""}>sem data — usa hoje (${n})</option>`);
+  }
+  opcoes.push(`<option value="todos" ${importMes === "todos" ? "selected" : ""}>Todos os meses (${importLinhas.length})</option>`);
+
+  const visiveis = importLinhas.map((l, i) => ({ l, i })).filter(({ l }) => importMes === "todos" || mesDaLinha(l) === importMes);
+
+  let html = `<div class="barra-hist" style="margin:18px 0 6px">
+    <div class="sub">Importar o mês:</div>
+    <select class="busca-hist" style="min-width:190px" onchange="importMes=this.value;aplicarFiltroMesImport();renderImportPreview()">${opcoes.join("")}</select>
+  </div>`;
+  html += `<div class="sub" style="margin:0 0 10px">${visiveis.length} lançamento(s) neste filtro. Revise, escolha a caixinha e importe:</div>`;
+  html += visiveis.map(({ l, i }) => {
     const opts = `<option value="">${l.tipo === 'entrada' ? '(saldo livre)' : '(saída livre)'}</option>` +
       TODAS_CAIXINHAS.map(c => `<option value="${c.id}" ${l.caixinha_id === c.id ? 'selected' : ''}>${c.nome}</option>`).join("");
     return `<div class="item" style="gap:10px;flex-wrap:wrap">

@@ -1418,3 +1418,24 @@ chama `/entradas-recorrentes/gerar` ANTES de calcular saldos/histórico, então 
 **Testado (SQLite isolado, 7/7):** cria a entrada; **dispara a distribuição** (10% → caixinha); NÃO
 lança renda de dia futuro; saldos certos (caixinha R$170, livre R$1530); 2ª geração não duplica. Front:
 sem erros, painel/campos/validação OK. Nada de deploy manual — a tabela nasce no Supabase no startup.
+
+### Etapa 27 — Importar extrato: filtro de mês + datas + card do mês (10/08/2026)
+
+Um amigo do Renan testou o importador de extrato e o mês inteiro veio inflado com o ano todo. Diagnóstico
+(2 causas): (1) o card do topo **"Entradas do mês"** vinha de `/saldo-livre`, que soma TODAS as entradas
+(sem filtro de mês) — rótulo mentia; (2) no `importar/confirmar`, data que não batia o formato virava
+`data_hoje()`, jogando lançamentos antigos no mês atual.
+
+**Correções:**
+- **Card "Entradas do mês"** agora é preenchido por `carregarAnalise` (que já filtra `l.data.startsWith(mesAtual)`);
+  tirei o `ct-entradas` do `carregarSaldoLivre`. Passa a mostrar só o mês corrente.
+- **Parser de datas (`_data_iso`) mais esperto:** além de dd/mm/aaaa e aaaa-mm-dd, agora cobre ISO com
+  hora, aaaa/mm/dd, dd-mm-aaaa, dd.mm.aaaa, dd/mm/aa e mês por extenso em pt ("15 ago 2026", "15 de
+  agosto de 2026", "15 ago"). Testado 12/12.
+- **Filtro de mês na importação (pedido do amigo):** a prévia agrupa por mês e por padrão marca só o
+  **mês atual** (ou o mês mais recente do arquivo). Seletor pra trocar de mês, ver "sem data — usa hoje"
+  ou "Todos os meses". Assim não puxa o extrato do ano inteiro de uma vez. Testado no navegador (default
+  = mês atual, só as linhas do mês marcadas; "Todos" marca tudo).
+
+Só front + `_data_iso`; o `importar/confirmar` segue com o fallback "hoje" só pra linhas que o usuário
+escolher explicitamente na aba "sem data".
