@@ -1519,10 +1519,22 @@ def listar_recorrentes(user_id: str = Depends(exigir_login)):
 @app.post("/recorrentes/{recorrente_id}/fatura")
 def vincular_fatura(recorrente_id: int, item: VincularFatura, user_id: str = Depends(exigir_login)):
     con = conectar()
-    rec = con.execute("SELECT id, nome FROM recorrentes WHERE id=? AND user_id=?", (recorrente_id, user_id)).fetchone()
+    rec = con.execute("SELECT id, nome, conta_fatura_id FROM recorrentes WHERE id=? AND user_id=?", (recorrente_id, user_id)).fetchone()
     if rec is None:
         con.close()
         raise HTTPException(status_code=404, detail="Essa assinatura não existe.")
+    nome, fatura_antiga = rec[1], rec[2]
+    hoje = date.today()
+    mes_str = f"{hoje.year:04d}-{hoje.month:02d}"
+    # se estava numa fatura e agora saiu (ou trocou de fatura), tira o item deste mês da fatura ANTIGA
+    # (se ela ainda não foi paga) — senão a assinatura fica cobrada na fatura E como conta avulsa.
+    if fatura_antiga is not None and fatura_antiga != item.conta_fatura_id:
+        fa = con.execute("SELECT paga FROM contas WHERE id=? AND user_id=?", (fatura_antiga, user_id)).fetchone()
+        if fa is not None and fa[0] == 0:
+            con.execute(
+                "DELETE FROM fatura_itens WHERE conta_id=? AND descricao=? AND data LIKE ? AND user_id=?",
+                (fatura_antiga, nome, mes_str + "%", user_id)
+            )
     if item.conta_fatura_id is not None:
         f = con.execute("SELECT tipo_conta FROM contas WHERE id=? AND user_id=?", (item.conta_fatura_id, user_id)).fetchone()
         if f is None or (f[0] or "simples") != "fatura":
@@ -1530,11 +1542,9 @@ def vincular_fatura(recorrente_id: int, item: VincularFatura, user_id: str = Dep
             raise HTTPException(status_code=400, detail="Escolha uma fatura de cartão válida.")
         # ao vincular, remove a conta avulsa NÃO PAGA deste mês com o mesmo nome
         # (evita cobrar duas vezes: uma avulsa + uma dentro da fatura)
-        hoje = date.today()
-        mes_str = f"{hoje.year:04d}-{hoje.month:02d}"
         con.execute(
             "DELETE FROM contas WHERE nome=? AND paga=0 AND (tipo_conta='simples' OR tipo_conta IS NULL) AND vencimento LIKE ? AND user_id=?",
-            (rec[1], mes_str + "%", user_id)
+            (nome, mes_str + "%", user_id)
         )
     con.execute("UPDATE recorrentes SET conta_fatura_id=? WHERE id=? AND user_id=?", (item.conta_fatura_id, recorrente_id, user_id))
     con.commit()

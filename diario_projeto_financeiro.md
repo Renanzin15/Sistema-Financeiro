@@ -1447,3 +1447,12 @@ app.js** (a fonte Inter foi pro styles.css). Rotas `GET /styles.css` e `GET /app
 (content-type certo + no-store). Como o app agora é hospedado, servir 3 arquivos é trivial. Ganho:
 toda edicao de front passa a ler/mexer so no arquivo certo (JS no app.js, estilo no styles.css) em vez
 do monstro unico. Testado: CSS aplicado, Inter carrega, JS roda, zero erros — app identico.
+
+### Etapa 29 — Fix: desvincular assinatura da fatura duplicava a conta (10/08/2026)
+
+Bug (print do Renan, 3x o mesmo pagamento de R$20): ao desvincular uma assinatura da fatura, o
+`vincular_fatura` so zerava o `conta_fatura_id` mas NAO removia o item que ja estava na fatura daquele
+mes. Ai a assinatura ficava cobrada na fatura E como conta avulsa (que o `gerar_recorrentes` recria) ->
+dava pra pagar as duas (ou mais, em ciclos de vincular/desvincular). Fix: ao desvincular ou TROCAR de
+fatura, remove o `fatura_itens` daquele mes da fatura antiga (se nao paga). Testado 3/3 SQLite. Nota:
+corrige daqui pra frente; duplicatas ja criadas antes o usuario apaga/desfaz na mao.
