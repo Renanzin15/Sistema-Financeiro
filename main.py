@@ -1309,7 +1309,7 @@ def pagar_conta(conta_id: int, item: PagamentoConta, user_id: str = Depends(exig
 
     # a conta existe?
     conta = con.execute(
-        "SELECT id, valor_centavos, paga, tipo_conta FROM contas WHERE id=? AND user_id=?", (conta_id, user_id)
+        "SELECT id, valor_centavos, paga, tipo_conta, nome FROM contas WHERE id=? AND user_id=?", (conta_id, user_id)
     ).fetchone()
     if conta is None:
         con.close()
@@ -1334,10 +1334,11 @@ def pagar_conta(conta_id: int, item: PagamentoConta, user_id: str = Depends(exig
         con.close()
         raise HTTPException(status_code=400, detail="Saldo insuficiente nessa caixinha.")
 
-    # tira o dinheiro da caixinha (pagamento)
+    # tira o dinheiro da caixinha (pagamento) — a descrição carrega o NOME da conta
+    # pra ficar claro no histórico o que foi pago (ex.: "Pagamento: Conta de luz").
     con.execute(
         "INSERT INTO lancamentos (tipo, valor_centavos, descricao, caixinha_id, data, user_id) VALUES (?, ?, ?, ?, ?, ?)",
-        ("pagamento", valor, "pagamento de conta", item.caixinha_id, data_hoje(), user_id)
+        ("pagamento", valor, f"Pagamento: {conta[4]}", item.caixinha_id, data_hoje(), user_id)
     )
     # marca a conta como paga e guarda de qual caixinha saiu
     con.execute(
@@ -1352,7 +1353,7 @@ def pagar_conta(conta_id: int, item: PagamentoConta, user_id: str = Depends(exig
 def desfazer_pagamento(conta_id: int, user_id: str = Depends(exigir_login)):
     con = conectar()
     conta = con.execute(
-        "SELECT id, valor_centavos, paga, caixinha_paga_id, tipo_conta FROM contas WHERE id=? AND user_id=?", (conta_id, user_id)
+        "SELECT id, valor_centavos, paga, caixinha_paga_id, tipo_conta, nome FROM contas WHERE id=? AND user_id=?", (conta_id, user_id)
     ).fetchone()
     if conta is None:
         con.close()
@@ -1365,10 +1366,13 @@ def desfazer_pagamento(conta_id: int, user_id: str = Depends(exigir_login)):
     valor = total_conta(con, user_id, conta_id, conta[4] or "simples", conta[1])
     caixinha_id = conta[3]
 
-    # remove o lançamento de pagamento criado (o mais recente dessa caixinha com esse valor)
+    # remove o lançamento de pagamento criado (o mais recente dessa caixinha com esse valor).
+    # aceita a descrição nova ("Pagamento: <nome>") e a antiga ("pagamento de conta"), pra
+    # continuar desfazendo pagamentos feitos antes desta mudança.
     lanc = con.execute(
-        "SELECT id FROM lancamentos WHERE caixinha_id=? AND valor_centavos=? AND tipo='pagamento' AND descricao='pagamento de conta' AND user_id=? ORDER BY id DESC LIMIT 1",
-        (caixinha_id, valor, user_id)
+        "SELECT id FROM lancamentos WHERE caixinha_id=? AND valor_centavos=? AND tipo='pagamento' "
+        "AND descricao IN (?, 'pagamento de conta') AND user_id=? ORDER BY id DESC LIMIT 1",
+        (caixinha_id, valor, f"Pagamento: {conta[5]}", user_id)
     ).fetchone()
     if lanc is not None:
         con.execute("DELETE FROM lancamentos WHERE id=? AND user_id=?", (lanc[0], user_id))

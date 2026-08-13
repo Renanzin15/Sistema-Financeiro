@@ -798,7 +798,9 @@ function visualLanc(l) {
   if (l.tipo === "rendimento")
     return { icone: "analise", cor: "var(--verde)", fundo: "var(--verde-fundo)", classe: "mais", sinal: "+ ", rot: "Rendimento (caixinha)" };
   if (l.tipo === "pagamento") {
-    const rot = (l.descricao === "pagamento de conta") ? "Pagamento de conta" : "Gasto de caixinha";
+    const d = l.descricao || "";
+    const ehConta = d.startsWith("Pagamento: ") || d === "pagamento de conta";
+    const rot = ehConta ? "Pagamento de conta" : "Gasto de caixinha";
     return { icone: "saida", cor: "var(--vermelho)", fundo: "var(--vermelho-fundo)", classe: "menos", sinal: "− ", rot };
   }
   if (l.tipo === "saida_livre")
@@ -826,10 +828,13 @@ function rotuloMes(mesStr) {
 // F2: monta a linha de um movimento no histórico (com ícone circular colorido)
 function linhaHistorico(l) {
   const v = visualLanc(l);
+  // pagamento de conta guarda "Pagamento: <nome>"; no título mostramos só o nome
+  // (o subtítulo já diz "Pagamento de conta"), evitando redundância.
+  const titulo = (l.descricao || "").startsWith("Pagamento: ") ? l.descricao.slice("Pagamento: ".length) : (l.descricao || "");
   return `<div class="item">
     <div style="display:flex;align-items:center;gap:12px;min-width:0">
       <span class="ico-circ" style="color:${v.cor};background:${v.fundo}">${ico(v.icone, 18)}</span>
-      <div style="min-width:0"><div class="nome">${l.descricao}</div><div class="sub">${v.rot}</div></div>
+      <div style="min-width:0"><div class="nome">${titulo}</div><div class="sub">${v.rot}</div></div>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
       <span class="valor ${v.classe}">${v.sinal}${reais(l.valor_reais)}</span>

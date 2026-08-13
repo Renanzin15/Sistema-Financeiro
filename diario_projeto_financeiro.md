@@ -1581,3 +1581,28 @@ add 1x mesmo rodando varias vezes; (4) guard manual detecta a avulsa paga e libe
 conflito. `py_compile` OK. So back-end (main.py). Obs: se um duplicado antigo tiver sido lancado a mao numa
 fatura SEM a assinatura estar vinculada, o gerador nao mexe nele — nesse caso e so apagar o item pela
 lixeirinha na fatura.
+
+### Etapa 38 — Historico: "pagamento de conta" agora mostra o NOME da conta (12/08/2026)
+
+Pedido do Renan (print do historico): todo pagamento aparecia como "pagamento de conta" (generico) — nao
+dava pra saber o que foi pago. Agora o lancamento carrega o nome: descricao vira "Pagamento: <nome da
+conta>" e no historico o titulo mostra so o nome (ex.: "Conta de luz") com o subtitulo "Pagamento de
+conta".
+
+Detalhe importante: pagamento-de-conta e gasto-de-caixinha usam o MESMO `tipo='pagamento'` no banco; o
+front so os separava pela igualdade exata `descricao === 'pagamento de conta'`. Entao mudei o
+discriminador junto. Fixes:
+
+- **main.py `pagar_conta`:** busca o `nome` da conta e grava `descricao = f"Pagamento: {nome}"` (antes era
+  fixo "pagamento de conta").
+- **main.py `desfazer_pagamento`:** procurava o lancamento por `descricao='pagamento de conta'`; agora
+  aceita `descricao IN ("Pagamento: <nome>", "pagamento de conta")` — desfaz os novos E os antigos.
+- **app.js `visualLanc`:** classifica como "Pagamento de conta" quando a descricao começa com
+  "Pagamento: " OU é a antiga "pagamento de conta" (retrocompat); senao "Gasto de caixinha".
+- **app.js `linhaHistorico`:** tira o prefixo "Pagamento: " do titulo (o subtitulo ja diz "Pagamento de
+  conta"), evitando redundancia.
+
+Testado com script SQLite isolado (8 checks, todos OK): desfazer acha/remove o pagamento novo sem tocar no
+gasto de caixinha, ainda desfaz os antigos, e o front monta titulo/subtitulo certos nos 3 casos (novo,
+gasto de caixinha, antigo). `py_compile` OK. Pagamentos ja feitos antes continuam como "pagamento de
+conta" no historico (nao dava pra reconstruir o nome retroativo); os novos ja saem com o nome.
