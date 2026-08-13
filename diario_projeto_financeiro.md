@@ -1553,3 +1553,31 @@ funcao `irPara(tela)` reaproveita o clique do `.item-menu` correspondente (mante
 o titulo em sincronia) e da um scrollTo topo suave. Como o `.cards-topo` fica fora das `<section>`, o
 atalho vale de qualquer tela — bonus. Testado no browser: clicar em cada card troca tela/menu/titulo
 certos; 2 setas presentes. So front-end (index.html + styles.css + app.js).
+
+### Etapa 37 — Fix: assinatura paga avulsa + vinculada a fatura cobrava DUAS vezes (12/08/2026)
+
+Bug (print do Renan): pagou "teste_assinatura_1" (R$30) como conta avulsa e depois vinculou/lancou ela na
+fatura "teste_fatura_1". Resultado: a avulsa ficou marcada "Pago" E o mesmo R$30 entrou como item da
+fatura -> pagar a fatura cobraria os R$30 de novo (duplicado; fatura somava 50 = 20 do gasto real + 30 da
+assinatura ja paga). Causa: o `vincular_fatura` so removia a conta avulsa duplicada quando `paga=0`; se ja
+tinha sido paga (`paga=1`), ela nao era removida e o `gerar_recorrentes_do_mes` ainda adicionava o item na
+fatura.
+
+Regra nova (invariante): **cada assinatura e cobrada em UM lugar so por mes — ou como conta avulsa, ou
+como item da fatura, nunca nos dois.** Fixes em main.py:
+
+- **`gerar_recorrentes_do_mes` (branch vinculada):** antes de add o item, verifica se ja existe conta
+  avulsa do mesmo nome/mes. Se a avulsa ja foi PAGA -> nao adiciona o item e REMOVE o item duplicado que
+  por acaso ja tenha entrado (isso limpa sozinho o estado do print na proxima abertura de Dividas, se a
+  assinatura estiver vinculada). Se a avulsa NAO foi paga -> migra pra fatura (apaga a avulsa, vira item).
+  Sem avulsa -> comportamento normal (add 1x, com dedup). Idempotente.
+
+- **`adicionar_item_fatura` (o "Adicionar gasto" manual):** bloqueia lancar um item cujo nome ja foi PAGO
+  como conta avulsa neste mes (HTTP 400 com msg amigavel), pra nao cobrar duas vezes pelo caminho manual.
+
+Testado com script SQLite isolado (4 cenarios, 10 checks, todos OK): (1) avulsa paga + item duplicado ->
+fatura cai de 50 pra 20 e a avulsa paga fica de historico; (2) avulsa nao paga -> migra; (3) sem avulsa ->
+add 1x mesmo rodando varias vezes; (4) guard manual detecta a avulsa paga e libera gasto novo sem
+conflito. `py_compile` OK. So back-end (main.py). Obs: se um duplicado antigo tiver sido lancado a mao numa
+fatura SEM a assinatura estar vinculada, o gerador nao mexe nele — nesse caso e so apagar o item pela
+lixeirinha na fatura.

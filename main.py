@@ -518,15 +518,32 @@ def gerar_recorrentes_do_mes(user_id):
             # vinculada a uma fatura VÁLIDA -> vira item dela (nunca cria conta avulsa)
             if fatura is not None and (fatura[1] or "simples") == "fatura":
                 if fatura[2] == 0:  # só mexe na fatura se ainda não foi paga
+                    # a assinatura já foi lançada como conta AVULSA neste mês? (ela era avulsa,
+                    # gerou conta e depois foi vinculada à fatura). Regra: cada assinatura é cobrada
+                    # em UM lugar só por mês — ou avulsa, ou dentro da fatura, nunca nos dois.
+                    avulsa = con.execute(
+                        "SELECT id, paga FROM contas WHERE nome=? AND vencimento LIKE ? "
+                        "AND (tipo_conta='simples' OR tipo_conta IS NULL) AND user_id=?",
+                        (nome, mes_str + "%", user_id)
+                    ).fetchone()
                     ja_item = con.execute(
                         "SELECT id FROM fatura_itens WHERE conta_id=? AND descricao=? AND data LIKE ? AND user_id=?",
                         (fatura_id, nome, mes_str + "%", user_id)
                     ).fetchone()
-                    if ja_item is None:
-                        con.execute(
-                            "INSERT INTO fatura_itens (conta_id, descricao, valor_centavos, data, user_id) VALUES (?, ?, ?, ?, ?)",
-                            (fatura_id, nome, valor, vencimento, user_id)
-                        )
+                    if avulsa is not None and avulsa[1] == 1:
+                        # já foi PAGA como avulsa -> não pode ser cobrada de novo na fatura.
+                        # remove o item duplicado (se algum já tinha entrado) e não adiciona.
+                        if ja_item is not None:
+                            con.execute("DELETE FROM fatura_itens WHERE id=? AND user_id=?", (ja_item[0], user_id))
+                    else:
+                        # avulsa ainda não paga -> migra pra fatura (apaga a avulsa deste mês)
+                        if avulsa is not None:
+                            con.execute("DELETE FROM contas WHERE id=? AND user_id=?", (avulsa[0], user_id))
+                        if ja_item is None:
+                            con.execute(
+                                "INSERT INTO fatura_itens (conta_id, descricao, valor_centavos, data, user_id) VALUES (?, ?, ?, ?, ?)",
+                                (fatura_id, nome, valor, vencimento, user_id)
+                            )
                 continue
             # fatura apagada ou inválida -> cai no comportamento avulso abaixo
         ja_existe = con.execute(
@@ -1460,6 +1477,17 @@ def adicionar_item_fatura(conta_id: int, item: NovoItemFatura, user_id: str = De
     if item.valor_centavos <= 0:
         con.close()
         raise HTTPException(status_code=400, detail="O valor do item precisa ser maior que zero.")
+    # verificação anti-duplicidade: se essa mesma conta já foi PAGA como avulsa neste mês,
+    # não deixa lançá-la de novo dentro da fatura (senão paga duas vezes).
+    mes_atual = data_hoje()[:7]
+    ja_paga_avulsa = con.execute(
+        "SELECT id FROM contas WHERE nome=? AND paga=1 AND (tipo_conta='simples' OR tipo_conta IS NULL) "
+        "AND vencimento LIKE ? AND user_id=?",
+        (item.descricao, mes_atual + "%", user_id)
+    ).fetchone()
+    if ja_paga_avulsa is not None:
+        con.close()
+        raise HTTPException(status_code=400, detail=f"'{item.descricao}' já foi paga este mês como conta avulsa — não dá pra lançar de novo na fatura (evita cobrar duas vezes).")
     con.execute(
         "INSERT INTO fatura_itens (conta_id, descricao, valor_centavos, data, user_id) VALUES (?, ?, ?, ?, ?)",
         (conta_id, item.descricao, item.valor_centavos, data_hoje(), user_id)
