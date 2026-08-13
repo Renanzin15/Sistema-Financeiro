@@ -1606,3 +1606,16 @@ Testado com script SQLite isolado (8 checks, todos OK): desfazer acha/remove o p
 gasto de caixinha, ainda desfaz os antigos, e o front monta titulo/subtitulo certos nos 3 casos (novo,
 gasto de caixinha, antigo). `py_compile` OK. Pagamentos ja feitos antes continuam como "pagamento de
 conta" no historico (nao dava pra reconstruir o nome retroativo); os novos ja saem com o nome.
+
+### Etapa 39 — Botoes de guardar/gastar direto na linha da caixinha (12/08/2026)
+
+Pedido do Renan: alem dos formularios "Guardar dinheiro" e "Gastar de uma caixinha", ter botoes de
+adicionar/retirar do lado de cada caixinha na lista. Feito: cada linha da caixinha agora tem 4 botoes na
+ordem — **+ (Guardar, verde)**, **− (Gastar/tirar, vermelho)**, meta e apagar. Clicar abre um modal
+(reaproveita o `abrirFormModal` do "definir meta") pedindo valor (+ descricao no gastar, + data opcional) e
+chama os mesmos endpoints dos formularios: guardar -> POST /lancamentos tipo 'alocacao'; gastar -> tipo
+'pagamento'. Adicionei 2 icones novos ao `ICONES` (mais/menos, so 2 linhas SVG). Validado no browser:
+botoes renderizam na ordem certa com os SVGs; guardar R$300 gera body {tipo:'alocacao',
+valor_centavos:30000,...}; gastar "Cinema" R$40 gera {tipo:'pagamento', descricao:'Cinema',
+valor_centavos:4000,...}; valor 0/invalido e bloqueado com aviso e nao faz request. So front-end
+(app.js). Os formularios antigos continuam (nada removido).

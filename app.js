@@ -29,6 +29,8 @@ const ICONES = {
   analise: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
   sair: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
   meta: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  mais: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  menos: '<line x1="5" y1="12" x2="19" y2="12"/>',
   categoria: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   gatilho: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
   importar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'
@@ -318,6 +320,8 @@ async function carregarCaixinhas() {
           <div class="nome">${c.nome}${etiqueta(c)}</div>
           <div style="display:flex;align-items:center;gap:10px">
             <span class="valor roxo">${reais(c.saldo_reais)}</span>
+            <button class="perigo ib" title="Guardar dinheiro" style="color:var(--verde)" onclick="guardarNaCaixinha(${c.id})">${ico('mais')}</button>
+            <button class="perigo ib" title="Gastar / tirar" style="color:var(--vermelho)" onclick="gastarDaCaixinha(${c.id})">${ico('menos')}</button>
             <button class="perigo ib" title="Definir meta" onclick="definirMeta(${c.id})">${ico('meta')}</button>
             <button class="perigo ib" title="Apagar" onclick="apagarCaixinha(${c.id})">${ico('apagar')}</button>
           </div>
@@ -1299,6 +1303,48 @@ async function definirMeta(id) {
   try {
     await pedir(`/caixinhas/${id}/meta`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ meta_centavos, meta_prazo }) });
     aviso("Meta atualizada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+// atalhos direto na linha da caixinha: guardar (+) e gastar/tirar (−)
+async function guardarNaCaixinha(id) {
+  const c = TODAS_CAIXINHAS.find(x => x.id === id);
+  const r = await abrirFormModal({
+    titulo: `Guardar em ${c ? c.nome : "caixinha"}`,
+    campos: [
+      { id: "valor", label: "Valor (R$)", tipo: "number", placeholder: "300,00" },
+      { id: "data", label: "Data (opcional)", tipo: "date" }
+    ],
+    rotulo: "Guardar"
+  });
+  if (!r) return;
+  const v = parseFloat((r.valor || "").replace(",", "."));
+  if (isNaN(v) || v <= 0) return aviso("Informe um valor maior que zero.", "erro");
+  try {
+    await pedir("/lancamentos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "alocacao", valor_centavos: Math.round(v * 100), descricao: "guardado", caixinha_id: id, data: (r.data || "").trim() || null }) });
+    aviso("Dinheiro guardado.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function gastarDaCaixinha(id) {
+  const c = TODAS_CAIXINHAS.find(x => x.id === id);
+  const r = await abrirFormModal({
+    titulo: `Gastar de ${c ? c.nome : "caixinha"}`,
+    campos: [
+      { id: "desc", label: "Descrição", tipo: "text", placeholder: "Cinema" },
+      { id: "valor", label: "Valor (R$)", tipo: "number", placeholder: "40,00" },
+      { id: "data", label: "Data (opcional)", tipo: "date" }
+    ],
+    rotulo: "Registrar gasto"
+  });
+  if (!r) return;
+  const v = parseFloat((r.valor || "").replace(",", "."));
+  if (isNaN(v) || v <= 0) return aviso("Informe um valor maior que zero.", "erro");
+  try {
+    await pedir("/lancamentos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "pagamento", valor_centavos: Math.round(v * 100), descricao: (r.desc || "").trim() || "gasto", caixinha_id: id, data: (r.data || "").trim() || null }) });
+    aviso("Gasto registrado.", "ok"); carregarTudo();
   } catch (e) { aviso(e.message, "erro"); }
 }
 
