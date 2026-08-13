@@ -214,16 +214,16 @@
 
   /* mini-calendário de vencimentos (Visão geral) */
   .cal-topo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-  .cal-topo .cal-mes { font-size: 14px; font-weight: 650; text-transform: capitalize; }
+  .cal-topo .cal-mes { font-size: 14px; font-weight: 650; }
   .cal-nav {
     background: var(--painel2); border: 1px solid var(--borda); color: var(--texto2); border-radius: 10px;
     cursor: pointer; font-family: inherit; font-size: 15px; width: 30px; height: 30px; line-height: 1;
     transition: all .18s var(--ease);
   }
   .cal-nav:hover { color: var(--texto); border-color: var(--borda-2); background: var(--surface-3); }
-  /* limita a largura do calendário: sem isso, num painel largo (zoom baixo) as células
-     com aspect-ratio 1/1 viravam quadrados gigantes. max-width deixa encolher no mobile. */
-  #cal-widget { max-width: 340px; }
+  /* limita a largura do calendário (senão, num painel largo, as células com aspect-ratio 1/1
+     viram quadrados gigantes) e centraliza pra não ficar grudado à esquerda com um vão vazio. */
+  #cal-widget { max-width: 400px; margin-inline: auto; }
   .cal-grade { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
   .cal-cab {
     text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
@@ -374,7 +374,7 @@
     animation: modalIn .14s var(--ease);
   }
   .dp-topo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-  .dp-mes { font-size: 14px; font-weight: 650; text-transform: capitalize; }
+  .dp-mes { font-size: 14px; font-weight: 650; }
   .dp-nav { display: flex; gap: 6px; }
   .dp-nav button {
     width: 30px; height: 30px; font-size: 17px; line-height: 1; display: inline-flex; align-items: center;

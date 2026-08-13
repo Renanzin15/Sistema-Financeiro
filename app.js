@@ -616,7 +616,8 @@ function renderCalendario() {
   const offset = new Date(ano, mes, 1).getDay();               // 0=Dom ... 6=Sáb
   const diasNoMes = new Date(ano, mes + 1, 0).getDate();
   const mesStr = `${ano}-${String(mes + 1).padStart(2, "0")}`;
-  const nomeMes = calRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const nomeMesRaw = calRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const nomeMes = nomeMesRaw.charAt(0).toUpperCase() + nomeMesRaw.slice(1);  // "Agosto de 2026" (só a 1ª maiúscula)
 
   // agrupa as contas do mês exibido por dia de vencimento
   const porDia = {};
@@ -1930,7 +1931,7 @@ function dpRender() {
   for (let d = 1; d <= resto; d++) cells += `<div class="dp-dia fora">${d}</div>`;
   pop.innerHTML = `
     <div class="dp-topo">
-      <div class="dp-mes">${nomesMes[mes]} de ${ano}</div>
+      <div class="dp-mes">${nomesMes[mes].charAt(0).toUpperCase() + nomesMes[mes].slice(1)} de ${ano}</div>
       <div class="dp-nav"><button type="button" data-nav="-1">‹</button><button type="button" data-nav="1">›</button></div>
     </div>
     <div class="dp-grade">${dow.map(d => `<div class="dp-dow">${d}</div>`).join("")}${cells}</div>

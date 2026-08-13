@@ -1682,3 +1682,20 @@ grava 2026-08-15 e fecha; "Hoje"/"Limpar" ok; fecha clicando fora. Estilos compu
 (fundo #141024, raio 16px, z-index 600, hoje com borda #8b5cf6). So front (app.js, styles.css). Obs: no
 teste local via http.server o CSS pegou cache (o FastAPI real manda Cache-Control:no-store, entao em
 producao carrega fresco).
+
+### Etapa 43 — Ajuste do calendário de vencimentos (título e centralização) (12/08/2026)
+
+Print do Renan ("tá estranho") do widget "Vencimentos do mes". Dois problemas:
+1. **"Agosto De 2026"** — o `.cal-mes` tinha `text-transform: capitalize`, que deixava o conector "de"
+   maiusculo (errado em pt-BR). O date picker novo (Etapa 42) tinha o mesmo bug no `.dp-mes`.
+2. **Calendario grudado a esquerda** — o `#cal-widget` e capado em 400/340px, e como a Etapa 35 aumentou
+   o `max-width` do `.principal` pra 2400 (preencher no zoom baixo), o painel do calendario ficou bem
+   largo e o calendario sobrava um vao vazio grande a direita (medido: 251px no 1920).
+
+Fixes (styles.css + app.js):
+- Tirei `text-transform: capitalize` de `.cal-mes` e `.dp-mes`; agora capitalizo so a 1a letra no JS
+  (`nomeMesRaw.charAt(0).toUpperCase()+slice(1)` no renderCalendario; idem no dpRender) -> "Agosto de 2026".
+- `#cal-widget { max-width: 400px; margin-inline: auto }` — centraliza e um pouco maior (celula 44->53px).
+
+Testado no browser (1920): titulo "Agosto de 2026", calendario 400px centralizado (96px de vao de cada
+lado, simetrico), celula 53px. So front (styles.css, app.js).
