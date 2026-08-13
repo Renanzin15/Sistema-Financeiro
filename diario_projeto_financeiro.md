@@ -1658,3 +1658,27 @@ Testado no browser (4 cenarios): (A) assinatura correspondente + aceita -> chama
 recorrentes/{id}/fatura; (B) aparece o confirm mas recusa -> so mover-fatura; (C) conta sem assinatura ->
 sem confirm; (D) assinatura ja vinculada -> sem confirm. Nao duplica no mes atual porque o item ja foi
 movido e o gerador ve o ja_item (Etapa 37). So app.js.
+
+### Etapa 42 — Date picker com a nossa cara (calendário custom) (12/08/2026)
+
+Pedido do Renan (print): o `<input type="date">` abria o calendario BRANCO nativo do navegador, destoando
+do tema roxo/escuro. Como CSS nao estiliza o popup nativo, fiz um date picker custom que SUBSTITUI o
+calendario nativo mantendo o `<input type="date">` por baixo — o `.value` continua "AAAA-MM-DD", entao
+nada que le/grava data quebra.
+
+Como funciona (app.js + styles.css):
+- `dpInit()` cria um popup unico (`#dp-pop`) no body e usa **delegacao** de mousedown em captura: ao
+  clicar num `input[type="date"]`, faz `preventDefault` (mata o nativo) e abre o nosso `dpAbrir(input)`.
+  Delegacao cobre ate inputs de data criados dinamicamente (modais).
+- Popup no tema do app (`--painel`, `--borda-2`, `--grad` no dia selecionado, `--roxo` no "hoje"),
+  com navegacao de mes (‹ ›), grade 7 colunas, e acoes "Limpar"/"Hoje".
+- Escolher um dia grava `AAAA-MM-DD` no input e dispara input/change. Fecha ao escolher, clicar fora, Esc,
+  rolar ou redimensionar. Posiciona embaixo do campo (ou em cima se nao couber) e nao vaza pela direita.
+- CSS: `color-scheme: dark` no input e `::-webkit-calendar-picker-indicator { opacity:0; pointer-events:none }`
+  (o popup nativo so abre pelo iconezinho — desabilitando ele, so o nosso abre).
+
+Testado no browser: popup abre "agosto de 2026", 31 dias, marca o hoje; navega meses; escolher dia 15
+grava 2026-08-15 e fecha; "Hoje"/"Limpar" ok; fecha clicando fora. Estilos computados confirmam o tema
+(fundo #141024, raio 16px, z-index 600, hoje com borda #8b5cf6). So front (app.js, styles.css). Obs: no
+teste local via http.server o CSS pegou cache (o FastAPI real manda Cache-Control:no-store, entao em
+producao carrega fresco).

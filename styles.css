@@ -362,3 +362,37 @@
   @keyframes modalIn { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: none; } }
 
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  /* ===== date picker custom (nossa cara) — substitui o calendário nativo ===== */
+  /* some com o iconezinho nativo e deixa o campo com tema escuro */
+  input[type="date"] { color-scheme: dark; }
+  input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0; pointer-events: none; }
+  .dp-pop {
+    position: absolute; z-index: 600; width: 276px; background: var(--painel);
+    border: 1px solid var(--borda-2); border-radius: 16px; padding: 14px;
+    box-shadow: var(--sh-lift); color: var(--texto); font-family: inherit; user-select: none;
+    animation: modalIn .14s var(--ease);
+  }
+  .dp-topo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .dp-mes { font-size: 14px; font-weight: 650; text-transform: capitalize; }
+  .dp-nav { display: flex; gap: 6px; }
+  .dp-nav button {
+    width: 30px; height: 30px; font-size: 17px; line-height: 1; display: inline-flex; align-items: center;
+    justify-content: center; background: var(--painel2); border: 1px solid var(--borda); color: var(--texto2);
+    border-radius: 9px; cursor: pointer; font-family: inherit; transition: background .15s var(--ease), color .15s var(--ease);
+  }
+  .dp-nav button:hover { background: var(--surface-3); color: var(--texto); }
+  .dp-grade { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .dp-dow { text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); padding: 5px 0; }
+  .dp-dia {
+    aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; font-size: 13px;
+    border-radius: 9px; cursor: pointer; color: var(--texto); font-variant-numeric: tabular-nums;
+    border: 1px solid transparent; transition: background .12s var(--ease);
+  }
+  .dp-dia:hover { background: var(--painel2); }
+  .dp-dia.fora { color: var(--faint); opacity: .45; }
+  .dp-dia.hoje { border-color: var(--roxo); color: var(--roxo-claro); }
+  .dp-dia.sel { background: var(--grad); color: #fff; font-weight: 650; box-shadow: 0 4px 12px -4px rgba(124,92,255,.8); }
+  .dp-rodape { display: flex; justify-content: space-between; margin-top: 10px; }
+  .dp-acao { background: none; border: none; color: var(--roxo-claro); padding: 6px 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; border-radius: 8px; }
+  .dp-acao:hover { background: var(--roxo-fundo); }

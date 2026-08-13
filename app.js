@@ -1892,6 +1892,92 @@ enterSalva("s-valor", tirarSaldoLivre);
   });
 })();
 
+// ===== date picker custom (nossa cara) =====
+// mantém o <input type="date"> por baixo (valor continua AAAA-MM-DD), mas troca o
+// calendário BRANCO nativo por um popup no tema do app. Usa delegação, então cobre
+// inclusive os inputs de data criados dinamicamente (ex.: modais).
+const DP = { pop: null, input: null, view: null };
+function dpISO(dt) { return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; }
+function dpFechar() { if (DP.pop) DP.pop.style.display = "none"; DP.input = null; }
+function dpEscolher(iso) {
+  if (DP.input) {
+    DP.input.value = iso;
+    DP.input.dispatchEvent(new Event("input", { bubbles: true }));
+    DP.input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  dpFechar();
+}
+function dpRender() {
+  const pop = DP.pop, v = DP.view;
+  const ano = v.getFullYear(), mes = v.getMonth();
+  const nomesMes = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const dow = ["D", "S", "T", "Q", "Q", "S", "S"];
+  const inicio = new Date(ano, mes, 1).getDay();       // 0 = domingo
+  const diasNoMes = new Date(ano, mes + 1, 0).getDate();
+  const antMes = new Date(ano, mes, 0).getDate();
+  const hojeISO = dpISO(new Date());
+  const selISO = DP.input ? DP.input.value : "";
+  let cells = "";
+  for (let i = inicio - 1; i >= 0; i--) cells += `<div class="dp-dia fora">${antMes - i}</div>`;
+  for (let d = 1; d <= diasNoMes; d++) {
+    const iso = `${ano}-${String(mes + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const cls = ["dp-dia"];
+    if (iso === hojeISO) cls.push("hoje");
+    if (iso === selISO) cls.push("sel");
+    cells += `<div class="${cls.join(" ")}" data-iso="${iso}">${d}</div>`;
+  }
+  const resto = (7 - ((inicio + diasNoMes) % 7)) % 7;
+  for (let d = 1; d <= resto; d++) cells += `<div class="dp-dia fora">${d}</div>`;
+  pop.innerHTML = `
+    <div class="dp-topo">
+      <div class="dp-mes">${nomesMes[mes]} de ${ano}</div>
+      <div class="dp-nav"><button type="button" data-nav="-1">‹</button><button type="button" data-nav="1">›</button></div>
+    </div>
+    <div class="dp-grade">${dow.map(d => `<div class="dp-dow">${d}</div>`).join("")}${cells}</div>
+    <div class="dp-rodape"><button type="button" class="dp-acao" data-acao="limpar">Limpar</button><button type="button" class="dp-acao" data-acao="hoje">Hoje</button></div>`;
+  pop.querySelectorAll("[data-nav]").forEach(b => b.onclick = () => { DP.view = new Date(ano, mes + parseInt(b.dataset.nav), 1); dpRender(); });
+  pop.querySelectorAll("[data-iso]").forEach(el => el.onclick = () => dpEscolher(el.dataset.iso));
+  pop.querySelector('[data-acao="hoje"]').onclick = () => dpEscolher(hojeISO);
+  pop.querySelector('[data-acao="limpar"]').onclick = () => dpEscolher("");
+}
+function dpAbrir(input) {
+  DP.input = input;
+  const iso = input.value;
+  const base = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(iso + "T00:00:00") : new Date();
+  DP.view = new Date(base.getFullYear(), base.getMonth(), 1);
+  dpRender();
+  const pop = DP.pop;
+  pop.style.display = "block";
+  const r = input.getBoundingClientRect();
+  const larg = pop.offsetWidth, alt = pop.offsetHeight;
+  // abre embaixo; se não couber, abre em cima
+  let top = window.scrollY + r.bottom + 6;
+  if (r.bottom + 6 + alt > window.innerHeight && r.top - 6 - alt > 0) top = window.scrollY + r.top - 6 - alt;
+  let left = window.scrollX + r.left;
+  const maxLeft = window.scrollX + document.documentElement.clientWidth - larg - 8;
+  if (left > maxLeft) left = maxLeft;
+  pop.style.top = top + "px";
+  pop.style.left = Math.max(8, left) + "px";
+}
+function dpInit() {
+  const pop = document.createElement("div");
+  pop.className = "dp-pop"; pop.id = "dp-pop"; pop.style.display = "none";
+  document.body.appendChild(pop);
+  DP.pop = pop;
+  pop.addEventListener("mousedown", e => e.stopPropagation());   // clicar dentro não fecha
+  // abre nosso picker e impede o nativo (captura, antes do foco nativo)
+  document.addEventListener("mousedown", e => {
+    const inp = e.target.closest ? e.target.closest('input[type="date"]') : null;
+    if (inp) { e.preventDefault(); e.stopPropagation(); dpAbrir(inp); }
+  }, true);
+  // fecha ao clicar fora / Esc / rolar / redimensionar
+  document.addEventListener("mousedown", () => dpFechar());
+  document.addEventListener("keydown", e => { if (e.key === "Escape") dpFechar(); });
+  window.addEventListener("resize", () => dpFechar());
+  window.addEventListener("scroll", () => dpFechar(), true);
+}
+dpInit();
+
 // data de hoje
 const hoje = new Date();
 document.getElementById("data-hoje").textContent = hoje.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
