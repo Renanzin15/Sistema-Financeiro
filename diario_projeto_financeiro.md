@@ -1619,3 +1619,25 @@ botoes renderizam na ordem certa com os SVGs; guardar R$300 gera body {tipo:'alo
 valor_centavos:30000,...}; gastar "Cinema" R$40 gera {tipo:'pagamento', descricao:'Cinema',
 valor_centavos:4000,...}; valor 0/invalido e bloqueado com aviso e nao faz request. So front-end
 (app.js). Os formularios antigos continuam (nada removido).
+
+### Etapa 40 — Atrelar uma conta JÁ CRIADA a uma fatura (12/08/2026)
+
+Pedido do Renan: antes so dava pra vincular uma ASSINATURA (recorrente) a uma fatura; uma conta avulsa ja
+criada nao tinha como. Agora tem. Cada conta avulsa NAO paga ganha um botao "Atrelar a fatura" (icone de
+cartao), que so aparece se existir alguma fatura nao paga. Clicar abre um modal com um select das faturas
+disponiveis; ao confirmar, a conta vira ITEM da fatura e some da lista de contas avulsas (passa a ser
+cobrada dentro da fatura, sem duplicar).
+
+Implementacao:
+- **main.py:** nova rota `POST /contas/{id}/mover-fatura` (reaproveita o model VincularFatura). Guards:
+  404 se a conta nao existe; 400 se a conta e uma fatura, se ja foi paga, se a fatura alvo e invalida ou
+  ja foi paga. Usa o vencimento da conta como data do item (senao hoje), faz dedup por nome+mes pra nao
+  duplicar item, insere o `fatura_itens` e APAGA a conta avulsa.
+- **app.js:** `abrirFormModal` agora aceita campo `tipo:'select'` (com `opcoes:[{valor,texto}]`); nova
+  funcao `atrelarFatura(id)` (lista so faturas nao pagas de CONTAS, abre o modal, chama a rota); botao na
+  linha da conta avulsa nao paga (so quando ha fatura disponivel).
+
+Testado: backend com script SQLite (4 cenarios, 8 checks — mover ok/vira item e some; bloqueia conta paga;
+bloqueia fatura paga; dedup nao duplica). Front no browser: modal lista so a fatura nao paga, gera POST
+/contas/1/mover-fatura {conta_fatura_id:10}, sem fatura avisa; botao aparece na conta avulsa e NAO na
+fatura. `py_compile` OK. Back + front (main.py, app.js).

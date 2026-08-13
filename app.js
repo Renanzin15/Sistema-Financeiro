@@ -86,12 +86,13 @@ function abrirFormModal(opts) {
     const fundo = document.getElementById("modal-form");
     document.getElementById("mf-titulo").textContent = opts.titulo || "Editar";
     const corpo = document.getElementById("mf-corpo");
-    corpo.innerHTML = (opts.campos || []).map(c => `
-      <div class="campo">
-        <label>${c.label || ""}</label>
-        <input id="mf-campo-${c.id}" type="${c.tipo || "text"}" ${c.tipo === "number" ? 'step="0.01"' : ""}
-               value="${(c.valor ?? "").toString().replace(/"/g, "&quot;")}" placeholder="${c.placeholder || ""}">
-      </div>`).join("");
+    corpo.innerHTML = (opts.campos || []).map(c => {
+      const campo = c.tipo === "select"
+        ? `<select id="mf-campo-${c.id}">${(c.opcoes || []).map(o => `<option value="${o.valor}" ${String(o.valor) === String(c.valor) ? "selected" : ""}>${o.texto}</option>`).join("")}</select>`
+        : `<input id="mf-campo-${c.id}" type="${c.tipo || "text"}" ${c.tipo === "number" ? 'step="0.01"' : ""}
+               value="${(c.valor ?? "").toString().replace(/"/g, "&quot;")}" placeholder="${c.placeholder || ""}">`;
+      return `<div class="campo"><label>${c.label || ""}</label>${campo}</div>`;
+    }).join("");
     const btnOk = document.getElementById("mf-ok");
     const btnCancel = document.getElementById("mf-cancelar");
     btnOk.textContent = opts.rotulo || "Salvar";
@@ -525,6 +526,11 @@ async function carregarContas() {
       </div>${painelFatura}`;
     }
     const menu = CAIXINHAS.map(cx => `<option value="${cx.id}">${cx.nome}</option>`).join("");
+    // botão "atrelar à fatura": só para contas avulsas (não-fatura) e se houver alguma fatura não paga
+    const temFaturaDisp = contas.some(x => x.tipo_conta === "fatura" && !x.paga);
+    const btnAtrelar = (!ehFatura && temFaturaDisp)
+      ? `<button class="perigo ib" title="Atrelar à fatura" onclick="atrelarFatura(${c.id})">${ico('dividas')}</button>`
+      : "";
     return `<div class="linha-conta">
       <div>${nomeCell}</div>
       <div class="col-venc">${c.vencimento || "—"}</div>
@@ -533,6 +539,7 @@ async function carregarContas() {
       <div style="display:flex;gap:6px;align-items:center;justify-content:flex-end">
         <select style="font-family:inherit;font-size:12px;padding:6px;border:1px solid var(--borda);border-radius:8px;background:var(--fundo);color:var(--texto);max-width:110px" id="pagar-${c.id}">${menu}</select>
         <button class="acao pequeno" onclick="pagarConta(${c.id})">Pagar</button>
+        ${btnAtrelar}
         <button class="perigo ib" title="Editar" onclick="editarConta(${c.id})">${ico('editar')}</button>
         <button class="perigo ib" title="Apagar" onclick="apagarConta(${c.id})">${ico('apagar')}</button>
       </div>
@@ -1456,6 +1463,24 @@ async function pagarConta(id) {
     await pedir(`/contas/${id}/pagar`, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ caixinha_id: parseInt(caixinhaId) }) });
     aviso("Conta paga.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+// atrela uma conta avulsa já criada a uma fatura de cartão (vira item da fatura)
+async function atrelarFatura(id) {
+  const faturas = (CONTAS || []).filter(c => c.tipo_conta === "fatura" && !c.paga);
+  if (faturas.length === 0) return aviso("Crie uma fatura (não paga) primeiro.", "erro");
+  const c = (CONTAS || []).find(x => x.id === id);
+  const r = await abrirFormModal({
+    titulo: `Atrelar "${c ? c.nome : "conta"}" a uma fatura`,
+    campos: [{ id: "fatura", label: "Fatura de cartão", tipo: "select", opcoes: faturas.map(f => ({ valor: f.id, texto: f.nome })) }],
+    rotulo: "Atrelar"
+  });
+  if (!r) return;
+  try {
+    await pedir(`/contas/${id}/mover-fatura`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conta_fatura_id: parseInt(r.fatura) }) });
+    aviso("Conta atrelada à fatura.", "ok"); carregarTudo();
   } catch (e) { aviso(e.message, "erro"); }
 }
 

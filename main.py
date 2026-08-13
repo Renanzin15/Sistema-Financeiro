@@ -1521,6 +1521,52 @@ def apagar_item_fatura(conta_id: int, item_id: int, user_id: str = Depends(exigi
     con.close()
     return {"status": "item apagado"}
 
+@app.post("/contas/{conta_id}/mover-fatura")
+def mover_conta_para_fatura(conta_id: int, item: VincularFatura, user_id: str = Depends(exigir_login)):
+    """Atrela uma conta avulsa JÁ CRIADA a uma fatura: vira item da fatura e deixa de existir
+    como conta separada. Assim ela é cobrada dentro da fatura, sem duplicar."""
+    con = conectar()
+    conta = con.execute(
+        "SELECT id, nome, valor_centavos, vencimento, paga, tipo_conta FROM contas WHERE id=? AND user_id=?",
+        (conta_id, user_id)
+    ).fetchone()
+    if conta is None:
+        con.close()
+        raise HTTPException(status_code=404, detail="Essa conta não existe.")
+    if (conta[5] or "simples") == "fatura":
+        con.close()
+        raise HTTPException(status_code=400, detail="Não dá pra atrelar uma fatura dentro de outra.")
+    if conta[4] == 1:
+        con.close()
+        raise HTTPException(status_code=400, detail="Essa conta já foi paga. Desfaça o pagamento antes de atrelá-la a uma fatura.")
+    if item.conta_fatura_id is None:
+        con.close()
+        raise HTTPException(status_code=400, detail="Escolha uma fatura.")
+    fatura = con.execute("SELECT tipo_conta, paga FROM contas WHERE id=? AND user_id=?", (item.conta_fatura_id, user_id)).fetchone()
+    if fatura is None or (fatura[0] or "simples") != "fatura":
+        con.close()
+        raise HTTPException(status_code=400, detail="Escolha uma fatura de cartão válida.")
+    if fatura[1] == 1:
+        con.close()
+        raise HTTPException(status_code=400, detail="Essa fatura já foi paga. Desfaça o pagamento pra alterar os itens.")
+    nome, valor, venc = conta[1], conta[2], conta[3]
+    data_item = venc if (venc and data_valida(venc)) else data_hoje()
+    # dedup: não duplica um item do mesmo nome/mês que já esteja na fatura
+    ja = con.execute(
+        "SELECT id FROM fatura_itens WHERE conta_id=? AND descricao=? AND data LIKE ? AND user_id=?",
+        (item.conta_fatura_id, nome, data_item[:7] + "%", user_id)
+    ).fetchone()
+    if ja is None:
+        con.execute(
+            "INSERT INTO fatura_itens (conta_id, descricao, valor_centavos, data, user_id) VALUES (?, ?, ?, ?, ?)",
+            (item.conta_fatura_id, nome, valor, data_item, user_id)
+        )
+    # a conta avulsa deixa de existir por fora (agora vive dentro da fatura)
+    con.execute("DELETE FROM contas WHERE id=? AND user_id=?", (conta_id, user_id))
+    con.commit()
+    con.close()
+    return {"status": "conta atrelada à fatura"}
+
 
 # ========================================================
 # ROTAS DE RECORRENTES (assinaturas que se repetem todo mês)
