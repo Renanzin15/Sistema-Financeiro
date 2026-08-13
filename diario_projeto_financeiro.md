@@ -1641,3 +1641,20 @@ Testado: backend com script SQLite (4 cenarios, 8 checks — mover ok/vira item 
 bloqueia fatura paga; dedup nao duplica). Front no browser: modal lista so a fatura nao paga, gera POST
 /contas/1/mover-fatura {conta_fatura_id:10}, sem fatura avisa; botao aparece na conta avulsa e NAO na
 fatura. `py_compile` OK. Back + front (main.py, app.js).
+
+### Etapa 41 — Ao atrelar conta de assinatura, oferecer vincular pra todo mês (12/08/2026)
+
+Continuacao da Etapa 40. Quando a conta que o Renan atrela a uma fatura veio de uma ASSINATURA (recorrente
+avulsa de mesmo nome), agora o app pergunta se quer vincular a assinatura tambem — pra ela cair direto na
+fatura nos proximos meses, nao so agora. Se recusar, so a conta deste mes vai pra fatura (comportamento da
+Etapa 40).
+
+So front (app.js): expus as assinaturas num global `RECORRENTES` (setado em carregarRecorrentes); no
+`atrelarFatura`, depois do mover-fatura dar certo, procuro uma recorrente com o mesmo nome e ainda avulsa
+(conta_fatura_id null) e, se achar, abro o `confirmar(...)`. Se o usuario aceitar, chamo
+POST /recorrentes/{id}/fatura com a mesma fatura. Um `carregarTudo()` so no fim.
+
+Testado no browser (4 cenarios): (A) assinatura correspondente + aceita -> chama mover-fatura E
+recorrentes/{id}/fatura; (B) aparece o confirm mas recusa -> so mover-fatura; (C) conta sem assinatura ->
+sem confirm; (D) assinatura ja vinculada -> sem confirm. Nao duplica no mes atual porque o item ja foi
+movido e o gerador ve o ja_item (Etapa 37). So app.js.

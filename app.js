@@ -2,6 +2,7 @@ const API = "";
 let CAIXINHAS = [];
 let TODAS_CAIXINHAS = [];
 let CONTAS = [];
+let RECORRENTES = [];      // assinaturas carregadas (pra oferecer vincular à fatura)
 let BANCOS = [];
 let bancoSelecionado = null;
 let graficoPizza = null;
@@ -1215,6 +1216,7 @@ async function apagarEntradaRecorrente(id) {
 
 async function carregarRecorrentes() {
   const recs = await pedir("/recorrentes");
+  RECORRENTES = recs;
   // E2: faturas de cartão disponíveis (das contas já carregadas)
   const faturas = (CONTAS || []).filter(c => c.tipo_conta === "fatura");
   const nomeFatura = {}; faturas.forEach(f => { nomeFatura[f.id] = f.nome; });
@@ -1477,11 +1479,29 @@ async function atrelarFatura(id) {
     rotulo: "Atrelar"
   });
   if (!r) return;
+  const faturaId = parseInt(r.fatura);
   try {
     await pedir(`/contas/${id}/mover-fatura`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conta_fatura_id: parseInt(r.fatura) }) });
-    aviso("Conta atrelada à fatura.", "ok"); carregarTudo();
-  } catch (e) { aviso(e.message, "erro"); }
+      body: JSON.stringify({ conta_fatura_id: faturaId }) });
+  } catch (e) { return aviso(e.message, "erro"); }
+  aviso("Conta atrelada à fatura.", "ok");
+  // se essa conta veio de uma ASSINATURA avulsa de mesmo nome, oferece vincular pra cair na fatura todo mês
+  const rec = (RECORRENTES || []).find(x => x.nome === (c && c.nome) && !x.conta_fatura_id);
+  if (rec) {
+    const todoMes = await confirmar({
+      titulo: "Vincular a assinatura também?",
+      texto: `"${rec.nome}" é uma assinatura que se repete todo mês. Quer que ela caia direto nesta fatura nos próximos meses também (em vez de virar conta avulsa)?`,
+      rotulo: "Sim, todo mês", icone: "dividas"
+    });
+    if (todoMes) {
+      try {
+        await pedir(`/recorrentes/${rec.id}/fatura`, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conta_fatura_id: faturaId }) });
+        aviso("Assinatura vinculada à fatura.", "ok");
+      } catch (e) { aviso(e.message, "erro"); }
+    }
+  }
+  carregarTudo();
 }
 
 async function apagarLancamento(id) {
