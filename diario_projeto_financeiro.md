@@ -1699,3 +1699,31 @@ Fixes (styles.css + app.js):
 
 Testado no browser (1920): titulo "Agosto de 2026", calendario 400px centralizado (96px de vao de cada
 lado, simetrico), celula 53px. So front (styles.css, app.js).
+
+### Etapa 44 — Renda automática não lança retroativo + rótulo claro da regra (13/08/2026)
+
+Bug reportado pelo Renan: cadastrou uma renda automática (salário R$1700, dia 5) hoje (dia 13) e o app
+"do nada" botou R$1700 nas entradas do mês e R$1200 numa caixinha (a regra de salário distribuindo),
+dinheiro que ele nao colocou de proposito — e achou que nao aparecia no historico.
+
+Diagnostico: reproduzi em SQLite e o BACKEND ESTAVA CORRETO/consistente — a entrada (1700) E a alocacao
+da regra (1200) sao ambas lancamentos, aparecem no historico (mesma fonte /lancamentos que "entradas do
+mes"), saldo livre = 500, caixinha = 1200. Nao era fantasma; o 1200 e a regra distribuindo parte do
+salario. O incomodo real era o comportamento RETROATIVO: cadastrar dia 13 uma renda de dia 5 despejava o
+salario do mes na hora. (O "nao aparece no historico" provavelmente era a entrada estar datada em 05/08,
+la embaixo na lista, nao no topo — ou um filtro ativo.)
+
+Decisao do Renan (perguntei): renda automatica deve **começar no proximo mes** quando o dia ja passou.
+
+Fixes (main.py):
+- Coluna nova `criada_em` em entradas_recorrentes (Postgres: no CREATE + `ALTER ... ADD COLUMN IF NOT
+  EXISTS` pros bancos ja existentes; SQLite: no migrar() com PRAGMA). A rota de criar grava `data_hoje()`.
+- `gerar_entradas_recorrentes`: pula se a data-alvo do mes for anterior a `criada_em` (nao lanca
+  retroativo). Legado (criada_em NULL) continua lancando, sem regressao.
+- `aplicar_regras_salario`: rotulo do lancamento passou de "regra: salário" pra "Regra salário → Reserva"
+  (inclui a caixinha de destino), pra ficar claro no historico o que entrou e onde.
+
+Testado com script SQLite (3 casos): criada dia 13 p/ dia 5 nao lanca agosto mas lanca setembro; criada
+dia 3 lanca agosto; legado NULL lanca. `py_compile` OK. So back-end (main.py). Obs pro Renan: a renda de
+teste que ele ja criou gerou os lancamentos deste mes (antes do fix); pra limpar, e so apagar no historico
+a entrada "salário" e a alocacao da regra (botao de lixeira em cada linha), ou apagar/recriar a renda.
