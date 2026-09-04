@@ -489,7 +489,8 @@ async function carregarContas() {
   renderCalendario();   // calendário de vencimentos (Visão geral) usa CONTAS
   const lista = document.getElementById("lista-contas");
   let falta = 0;
-  contas.forEach(c => { if (!c.paga) falta += c.valor_reais; });
+  // soma o que ainda FALTA pagar (restante desconta pagamentos parciais já feitos)
+  contas.forEach(c => { if (!c.paga) falta += (c.restante_reais != null ? c.restante_reais : c.valor_reais); });
   document.getElementById("ct-contas").textContent = reais(falta);
   if (contas.length === 0) { lista.innerHTML = '<div class="vazio">Nenhuma conta cadastrada.</div>'; await carregarRecorrentes(); return; }
 
@@ -532,15 +533,25 @@ async function carregarContas() {
     const btnAtrelar = (!ehFatura && temFaturaDisp)
       ? `<button class="perigo ib" title="Atrelar à fatura" onclick="atrelarFatura(${c.id})">${ico('dividas')}</button>`
       : "";
+    // pagamento parcial: se já pagou parte, mostra "pago X · faltam Y" embaixo do valor
+    const parcial = (c.pago_reais > 0)
+      ? `<div class="sub" style="color:var(--amarelo)">pago ${reais(c.pago_reais)} · faltam ${reais(c.restante_reais)}</div>`
+      : "";
+    // desfazer aparece quando há algum pagamento parcial a reverter
+    const btnDesfazerParcial = (c.pago_reais > 0)
+      ? `<button class="perigo" title="Desfazer os pagamentos já feitos nesta conta" onclick="desfazerPagamento(${c.id})">Desfazer</button>`
+      : "";
     return `<div class="linha-conta">
       <div>${nomeCell}</div>
       <div class="col-venc">${c.vencimento || "—"}</div>
-      <div class="valor menos">${reais(c.valor_reais)}</div>
+      <div class="valor menos">${reais(c.valor_reais)}${parcial}</div>
       <div>${tag}</div>
       <div style="display:flex;gap:6px;align-items:center;justify-content:flex-end">
+        <input type="number" step="0.01" min="0" placeholder="tudo" title="Deixe vazio p/ pagar tudo, ou digite um valor p/ pagar parte" id="pagar-valor-${c.id}" style="font-family:inherit;font-size:12px;padding:6px;border:1px solid var(--borda);border-radius:8px;background:var(--fundo);color:var(--texto);width:74px">
         <select style="font-family:inherit;font-size:12px;padding:6px;border:1px solid var(--borda);border-radius:8px;background:var(--fundo);color:var(--texto);max-width:110px" id="pagar-${c.id}">${menu}</select>
         <button class="acao pequeno" onclick="pagarConta(${c.id})">Pagar</button>
         ${btnAtrelar}
+        ${btnDesfazerParcial}
         <button class="perigo ib" title="Editar" onclick="editarConta(${c.id})">${ico('editar')}</button>
         <button class="perigo ib" title="Apagar" onclick="apagarConta(${c.id})">${ico('apagar')}</button>
       </div>
@@ -1462,10 +1473,23 @@ async function criarRecorrente() {
 async function pagarConta(id) {
   const caixinhaId = document.getElementById("pagar-" + id).value;
   if (!caixinhaId) return aviso("Crie uma caixinha para pagar.", "erro");
+  const campoValor = document.getElementById("pagar-valor-" + id);
+  const valorTxt = campoValor ? campoValor.value.trim() : "";
   try {
-    await pedir(`/contas/${id}/pagar`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caixinha_id: parseInt(caixinhaId) }) });
-    aviso("Conta paga.", "ok"); carregarTudo();
+    if (valorTxt) {
+      // pagamento PARCIAL: paga só o valor digitado (a conta continua com o restante)
+      const centavos = paraCentavos(valorTxt);
+      if (!centavos || centavos <= 0) return aviso("Digite um valor válido para pagar.", "erro");
+      const r = await pedir(`/contas/${id}/pagar-parcial`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caixinha_id: parseInt(caixinhaId), valor_centavos: centavos }) });
+      aviso(r.quitada ? "Conta quitada!" : `Pago. Ainda faltam ${reais(r.restante_reais)}.`, "ok");
+    } else {
+      // sem valor digitado: paga tudo que falta (comportamento de sempre)
+      await pedir(`/contas/${id}/pagar`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caixinha_id: parseInt(caixinhaId) }) });
+      aviso("Conta paga.", "ok");
+    }
+    carregarTudo();
   } catch (e) { aviso(e.message, "erro"); }
 }
 

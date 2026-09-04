@@ -1727,3 +1727,37 @@ Testado com script SQLite (3 casos): criada dia 13 p/ dia 5 nao lanca agosto mas
 dia 3 lanca agosto; legado NULL lanca. `py_compile` OK. So back-end (main.py). Obs pro Renan: a renda de
 teste que ele ja criou gerou os lancamentos deste mes (antes do fix); pra limpar, e so apagar no historico
 a entrada "salário" e a alocacao da regra (botao de lixeira em cada linha), ou apagar/recriar a renda.
+
+## Etapa 26 — Pagamento parcial de conta/fatura (10/08/2026)
+
+Pedido do Renan: poder pagar **parte** de uma fatura (ex.: "quero pagar R$100 agora, não paguei tudo
+ainda"), em vez de só quitar o total de uma vez.
+
+**Modelo de dados:** nova coluna `conta_paga_id` em `lancamentos` (Postgres via `ALTER TABLE ... ADD
+COLUMN IF NOT EXISTS`; SQLite via migração idempotente). Cada lançamento `pagamento` passa a **apontar
+para a conta** que ele paga. Assim "quanto já foi pago" = soma dos pagamentos com aquele `conta_paga_id`
+(helper novo `total_pago_conta`) — mantém a filosofia do app (nada de saldo guardado; tudo calculado
+dos lançamentos). `financeiro.db` **não** precisa de nada manual: a coluna é criada sozinha no boot.
+
+**Backend (`main.py`):**
+- Rota nova `POST /contas/{id}/pagar-parcial` {caixinha_id, valor_centavos}: valida conta não-paga,
+  `0 < valor ≤ restante` (restante = total − já_pago), caixinha do usuário com saldo; cria o pagamento
+  ligado à conta; se o pagamento **zera** o restante, marca `paga=1`. Devolve `restante_reais` e `quitada`.
+- `pagar_conta` (o "Pagar tudo") agora paga o **restante** (não o total cheio) e também grava
+  `conta_paga_id` — então funciona certinho depois de parciais.
+- `desfazer_pagamento` reescrito: apaga **todos** os pagamentos ligados à conta (devolvendo o dinheiro
+  a cada caixinha de origem, porque saldo é calculado dos lançamentos) e volta `paga=0`. Funciona tanto
+  numa conta quitada quanto **parcialmente** paga. Mantém fallback pro formato ANTIGO (pagamentos sem
+  `conta_paga_id`, feitos antes desta mudança: casa por descrição+valor).
+- `listar_contas` passa a devolver `pago_reais` e `restante_reais` por conta.
+
+**Front (`app.js`):** na linha de cada conta não-paga, um campo de valor ("tudo") ao lado do seletor de
+caixinha — vazio = paga tudo que falta (comportamento de sempre); com valor = pagamento **parcial**.
+Conta parcialmente paga mostra "**pago R$X · faltam R$Y**" e ganha botão **Desfazer**. O card "Contas a
+pagar" do topo passa a somar o **restante** (desconta o que já foi pago).
+
+**Testado:** 17/17 no fluxo de pagamento parcial (parcial→parcial→quitar→desfazer, não deixa pagar acima
+do restante, funciona em fatura E conta simples, desfazer devolve às caixinhas certas) + os 33 do smoke
+test geral sem regressão + **teste visual no navegador**: paguei R$100 de R$500 pela UI → linha mostrou
+"pago R$ 100,00 · faltam R$ 400,00", botão Desfazer apareceu, e o total caiu pra R$ 400,00; zero erros
+de console.
