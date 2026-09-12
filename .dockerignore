@@ -1,0 +1,24 @@
+# o que NÃO entra na imagem Docker (deixa o build leve e sem segredos)
+.git
+.gitignore
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+# dados e segredos — nunca vão pra imagem
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+# idiomas do OCR ficam via apt (tesseract-ocr-por), não copiados do repo
+tessdata/
+*.traineddata
+# material que não é necessário em runtime
+backups/
+memoria_claude/
+exemplos/
+LEIA-ME_CONTINUAR_EM_OUTRA_CONTA.md
+Dockerfile
+.dockerignore
