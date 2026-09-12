@@ -1761,3 +1761,23 @@ do restante, funciona em fatura E conta simples, desfazer devolve às caixinhas 
 test geral sem regressão + **teste visual no navegador**: paguei R$100 de R$500 pela UI → linha mostrou
 "pago R$ 100,00 · faltam R$ 400,00", botão Desfazer apareceu, e o total caiu pra R$ 400,00; zero erros
 de console.
+
+## Etapa 27 — Anexar comprovante no cadastro da conta (auto-preenche) (12/09/2026)
+
+Pedido do Renan: no cadastro de uma conta, poder **anexar um documento/comprovante** pra ler e preencher
+as informações. Decisões dele: (1) o anexo **preenche** os campos (nome/valor/vencimento) pra conferir;
+(2) **só lê na hora**, não guarda o arquivo (sem file storage); (3) **mantém** o painel separado "Ler
+conta por foto ou PDF" que já existia na tela Importar.
+
+**Só frontend** — reaproveita a rota `/importar/conta-imagem` (OCR) que já existe; **zero mudança no
+backend**. No painel "Cadastrar conta" (tela Dívidas), um bloco novo `#ct-ocr-bloco`: área tracejada
+"📎 Anexar foto ou PDF da conta" (clique ou arrasta). Ao anexar, `ctLerAnexo` lê como DataURL, manda pro
+OCR e **preenche** `ct-nome`/`ct-valor`/`ct-venc` do próprio formulário, com um status ("✓ Li o comprovante
+e preenchi nome, valor, vencimento. Confira antes de cadastrar." / aviso se não achou / erro). O bloco é
+escondido quando o servidor não tem OCR (mesma checagem `/ocr-status` que já esconde o painel — importante:
+**no Render sem Tesseract, o anexo não aparece**, igual ao painel existente). Status limpa ao cadastrar.
+
+**Testado:** endpoint com a imagem real de exemplo → Energia / R$187,45 / 2026-08-20 ✓; no navegador
+(SQLite + OCR local, token HS256): anexo dispara o fluxo real e **preenche o formulário** com esses
+valores + mensagem de sucesso; bloco visível quando OCR disponível. Erro de arquivo inválido é tratado
+com mensagem amigável (não quebra). Só mudou `index.html` + `app.js`.

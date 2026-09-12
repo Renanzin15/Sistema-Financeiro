@@ -204,6 +204,9 @@ async function carregarTudo() {
   fetch("/ocr-status").then(r => r.json()).then(s => {
     const p = document.getElementById("painel-ocr");
     if (p) p.style.display = s.disponivel ? "" : "none";
+    // mesmo tratamento pro anexo dentro do formulário de cadastrar conta
+    const cb = document.getElementById("ct-ocr-bloco");
+    if (cb) cb.style.display = s.disponivel ? "" : "none";
   }).catch(() => {});
 }
 
@@ -1438,6 +1441,44 @@ async function tirarSaldoLivre() {
   } catch (e) { aviso(e.message, "erro"); }
 }
 
+// ===== Anexar comprovante no cadastro da conta: lê (OCR) e PREENCHE os campos =====
+function ctAnexoSelecionado(ev) {
+  const f = ev.target.files[0];
+  if (f) ctLerAnexo(f);
+  ev.target.value = "";   // permite re-anexar o mesmo arquivo
+}
+
+function ctLerAnexo(file) {
+  const tipo = ((file.name || "").toLowerCase().endsWith(".pdf") || file.type === "application/pdf") ? "pdf" : "imagem";
+  const status = document.getElementById("ct-anexo-status");
+  status.style.color = "var(--texto2)";
+  status.textContent = "Lendo o comprovante (pode levar alguns segundos)...";
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const resp = await pedir("/importar/conta-imagem", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conteudo: reader.result, tipo_arquivo: tipo }) });
+      // preenche os campos do formulário de cadastro (nome/valor/vencimento)
+      const feitos = [];
+      if (resp.nome) { document.getElementById("ct-nome").value = resp.nome; feitos.push("nome"); }
+      if (resp.valor_centavos) { document.getElementById("ct-valor").value = (resp.valor_centavos / 100).toFixed(2); feitos.push("valor"); }
+      if (resp.vencimento && resp.vencimento !== "?") { document.getElementById("ct-venc").value = resp.vencimento; feitos.push("vencimento"); }
+      if (feitos.length) {
+        status.style.color = "var(--verde)";
+        status.innerHTML = `✓ Li o comprovante e preenchi <b>${feitos.join(", ")}</b>. Confira antes de cadastrar.`;
+      } else {
+        status.style.color = "var(--amarelo)";
+        status.textContent = "Li o comprovante, mas não achei valor/vencimento com clareza. Preencha à mão.";
+      }
+    } catch (e) {
+      status.style.color = "var(--vermelho)";
+      status.textContent = e.message;
+    }
+  };
+  reader.onerror = () => { status.style.color = "var(--vermelho)"; status.textContent = "Não consegui ler o arquivo."; };
+  reader.readAsDataURL(file);   // "data:...;base64,XXXX" — o back-end decodifica
+}
+
 async function criarConta() {
   const nome = document.getElementById("ct-nome").value;
   const tipoConta = document.getElementById("ct-tipoconta").value;
@@ -1450,6 +1491,7 @@ async function criarConta() {
     await pedir("/contas", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nome, valor_centavos: tipoConta === "fatura" ? 0 : paraCentavos(valor), vencimento: venc, tipo, tipo_conta: tipoConta }) });
     document.getElementById("ct-nome").value = ""; document.getElementById("ct-valor").value = ""; document.getElementById("ct-venc").value = "";
+    const st = document.getElementById("ct-anexo-status"); if (st) st.textContent = "";
     aviso(tipoConta === "fatura" ? "Fatura criada. Abra-a para adicionar gastos." : "Conta cadastrada.", "ok"); carregarTudo();
   } catch (e) { aviso(e.message, "erro"); }
 }
@@ -1914,6 +1956,20 @@ enterSalva("s-valor", tirarSaldoLivre);
     drop.style.borderColor = "var(--borda)"; drop.style.color = "var(--texto2)";
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
     if (f) lerArquivoOcr(f);
+  });
+})();
+
+// arrastar-e-soltar o comprovante na área do formulário de cadastrar conta (auto-preenche)
+(function () {
+  const drop = document.getElementById("ct-anexo-drop");
+  if (!drop) return;
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.style.borderColor = "var(--roxo)"; drop.style.color = "var(--roxo-claro)"; });
+  drop.addEventListener("dragleave", () => { drop.style.borderColor = "var(--borda)"; drop.style.color = "var(--texto2)"; });
+  drop.addEventListener("drop", e => {
+    e.preventDefault();
+    drop.style.borderColor = "var(--borda)"; drop.style.color = "var(--texto2)";
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) ctLerAnexo(f);
   });
 })();
 

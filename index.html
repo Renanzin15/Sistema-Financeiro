@@ -220,6 +220,12 @@
       <div>
         <div class="painel">
           <h3 style="font-size:14px;margin-bottom:12px">Cadastrar conta</h3>
+          <div class="campo" id="ct-ocr-bloco">
+            <label>Comprovante (opcional — lê e preenche os campos)</label>
+            <input type="file" id="ct-anexo" accept="image/*,.pdf" style="display:none" onchange="ctAnexoSelecionado(event)">
+            <div id="ct-anexo-drop" onclick="document.getElementById('ct-anexo').click()" style="border:1px dashed var(--borda);border-radius:10px;padding:12px;text-align:center;cursor:pointer;color:var(--texto2);font-size:13px;transition:all 0.15s">📎 Anexar foto ou PDF da conta</div>
+            <div id="ct-anexo-status" class="sub" style="margin-top:6px"></div>
+          </div>
           <div class="campo"><label>Tipo de conta</label>
             <select id="ct-tipoconta" onchange="ajustarTipoConta()">
               <option value="simples">Simples (valor único)</option>
