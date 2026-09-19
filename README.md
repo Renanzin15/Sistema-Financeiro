@@ -12,6 +12,14 @@
 
 App de **finanças pessoais** (orçamento base zero + caixinhas), **multiusuário privado** e hospedado na nuvem. Back-end em **FastAPI + Postgres (Supabase)**, front em **HTML/CSS/JS** e login por **Supabase Auth** (e-mail/senha). Roda no **Render**; localmente cai para **SQLite** se não houver as variáveis do banco.
 
+<div align="center">
+
+![Dashboard do Meu Orçamento](docs/dashboard.png)
+
+<sub>Visão geral do app — valores borrados por privacidade.</sub>
+
+</div>
+
 > ⚠️ **Segredos nunca vão pro git.** `.env` e `*.local.md` estão no `.gitignore`. Nunca versione `financeiro.db` (dados) nem credenciais.
 
 ## ✨ Funcionalidades
