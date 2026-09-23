@@ -2472,7 +2472,7 @@ def totais_mes(con, user_id, mes):
     saiu = con.execute(
         "SELECT COALESCE(SUM(valor_centavos),0) FROM lancamentos "
         "WHERE user_id=? AND tipo IN ('saida_livre','pagamento') AND substr(data,1,7)=? "
-        "AND COALESCE(descricao,'') NOT LIKE 'transferência%'", (user_id, mes)
+        "AND COALESCE(descricao,'') NOT LIKE ?", (user_id, mes, "transferência%")
     ).fetchone()[0]
     return {"entrou_centavos": entrou, "saiu_centavos": saiu, "sobrou_centavos": entrou - saiu}
 

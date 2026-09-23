@@ -2103,3 +2103,12 @@ Causa: colisão de IDs — o formulário de Nova conta (Dívidas) e o de Novo ca
 (e o cartão reusava `ct-limite/ct-fechamento/ct-vencimento/ct-btn`). `getElementById` pegava o 1º (campo
 vazio da conta). Corrigido renomeando os campos do cartão pra `card-nome/card-limite/card-fechamento/
 card-vencimento/card-btn` (conta segue `ct-`). Verificado no navegador: cartão criado OK.
+
+**Correção de bug — Postgres (23/09/2026):** Comparar, Insights e o chat (resumo/sobra) davam "Internal
+Server Error" no site (frontend mostrava 'Unexpected token I, "Internal S"... is not valid JSON'). Causa:
+em `totais_mes` a query tinha `NOT LIKE 'transferência%'` com o `%` LITERAL na string SQL. Como o wrapper
+`_ConexaoPG` roda `sql.replace("?","%s")` e passa parâmetros ao psycopg2, o `%` literal era interpretado
+como formatação → estourava (só no Postgres; no SQLite não, por isso passou nos testes). Corrigido passando
+o padrão como PARÂMETRO: `NOT LIKE ?`, ("transferência%"). Regra pra frente: nunca deixar `%` literal em
+SQL com parâmetros — sempre no valor. Testado no SQLite (comparar/insights/assistente = 200; saiu ignora
+transferência/alocação). Obs.: instalei psycopg2-binary local só pra diagnóstico.
