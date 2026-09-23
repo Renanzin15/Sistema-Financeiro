@@ -1988,3 +1988,25 @@ mensal no cartão, sem duplicar ao recarregar. **Navegador (desktop+mobile)**: c
 parcelada 10x espalhando nas 10 faturas, estouro de limite em vermelho, select "cobrar em" com cartões;
 zero erros de console. Obs.: parcela em N meses cria N faturas (correto, mas gera muitas linhas — dá pra
 resumir "próxima fatura" no Dashboard na Mudança 6).
+
+## Etapa 35 — Reorganização do Dashboard (Mudança 6 do plano de evolução) (23/09/2026)
+
+Sexta mudança. Objetivo: transformar a Visão geral num painel de comando, reaproveitando as áreas novas
+(M1–M5). Decisões do Renan: adicionar os **4 widgets-resumo**; abordagem **reordenar + adicionar** (mantendo
+os blocos atuais); **Registrar entrada continua em destaque**. Só front, sem backend/DB.
+
+**Front (`index.html`+`app.js`+`styles.css`):** container `#resumos-dash` na Visão geral, entre o card de
+Alertas e o streak. `carregarResumosDash()` (chamado no `carregarTudo`) monta 4 cards clicáveis
+(`resumoCardHTML`, `irPara`): (1) **Próxima fatura** — a fatura de cartão não paga mais próxima a vencer,
+de `CARTOES` (valor restante + data + cartão); (2) **Orçamento do mês** — `GET /orcamento?mes=atual`,
+gasto vs teto total + mini-barra (verde/amarelo≥80%/vermelho>100%) + % consumido; (3) **Saldo projetado**
+— `GET /previsao?ate=fim do mês`, saldo projetado + aviso vermelho se `saldo_negativo`; (4) **Gasto vs
+mês passado** — `GET /comparar` (mês anterior × atual), saída do mês + variação colorida (`cmpVar`, gastar
+mais = vermelho). As 3 chamadas rodam em paralelo (`Promise.all`), cada uma com fallback "—"/dica. CSS
+`.resumos-dash` (grid 4 → 2 → 1 col) e `.resumo-card`. Ordem final: cards de saldo → Alertas → 4 resumos
+→ streak → Registrar entrada + caixinhas + calendário + pizza (tudo mantido).
+
+**Testado (navegador desktop + mobile):** 4 resumos com números corretos (Próxima fatura R$450 Nubank
+05/10; Orçamento R$930/R$1.200 78% barra verde; Saldo projetado R$3.370,10; Gasto vs mês passado R$930
+▲+55% vermelho); clique navega pra tela certa; empilha no celular; zero erros de console. Estados vazios
+graciosos pra quem não usa a área ("Cadastre um cartão", "Sem teto definido").

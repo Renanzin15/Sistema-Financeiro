@@ -222,6 +222,7 @@ async function carregarTudo() {
   await Promise.all([carregarSaldoLivre(), carregarCaixinhas(), carregarContas(), carregarHistorico(), carregarAnalise(), carregarCategorias(), carregarStreak(), carregarRegras(), carregarEntradasRecorrentes()]);
   atualizarPainelBancos();
   carregarAlertas();    // M4: alertas (sino + card na Visão geral)
+  carregarResumosDash(); // M6: resumos da Visão geral (próxima fatura, orçamento, previsão, comparação)
   verificarWrapped();   // E6: mostra a retrospectiva do mês passado (1x por sessão)
   // esconde o leitor de conta por foto se o servidor não tiver OCR (ex.: Render sem Tesseract)
   fetch("/ocr-status").then(r => r.json()).then(s => {
@@ -1584,6 +1585,77 @@ async function apagarCartao(id) {
     await pedir("/cartoes/" + id, { method: "DELETE" });
     aviso("Cartão apagado.", "ok"); carregarTudo();
   } catch (e) { aviso(e.message, "erro"); }
+}
+
+// ===== M6: resumos da Visão geral (próxima fatura, orçamento, previsão, comparação) =====
+function resumoCardHTML(icone, rot, val, sub, extra, tela, subClasse) {
+  return `<div class="resumo-card" onclick="irPara('${tela}')" role="button" tabindex="0"
+    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();irPara('${tela}')}">
+    <div class="rc-top"><span class="rc-ico">${ico(icone, 15)}</span><span class="rc-rot">${rot}</span></div>
+    <div class="rc-val">${val}</div>
+    <div class="rc-sub ${subClasse || ''}">${sub}</div>
+    ${extra || ""}
+  </div>`;
+}
+async function carregarResumosDash() {
+  const el = document.getElementById("resumos-dash");
+  if (!el) return;
+  const hoje = new Date();
+  const y = hoje.getFullYear(), m = hoje.getMonth() + 1;
+  const mesAtual = `${y}-${String(m).padStart(2, "0")}`;
+  const ultimoDia = new Date(y, m, 0).getDate();
+  const fimMes = `${mesAtual}-${String(ultimoDia).padStart(2, "0")}`;
+
+  // 1) Próxima fatura a vencer (de CARTOES já carregado)
+  let prox = null;
+  (CARTOES || []).forEach(k => (k.faturas || []).forEach(f => {
+    if (!f.paga && f.restante_centavos > 0 && (!prox || f.vencimento < prox.venc)) {
+      prox = { venc: f.vencimento, valor: f.restante_centavos, cartao: k.nome };
+    }
+  }));
+  const htmlFatura = prox
+    ? resumoCardHTML("cartaocred", "Próxima fatura", reais(prox.valor / 100), `${prox.cartao} · vence ${fmtDataBR(prox.venc)}`, "", "cartoes")
+    : resumoCardHTML("cartaocred", "Próxima fatura", "—", (CARTOES || []).length ? "Nenhuma fatura em aberto" : "Cadastre um cartão", "", "cartoes");
+
+  // 2/3/4) Orçamento, Previsão e Comparação em paralelo (cada um com seu fallback)
+  const [orc, prev, cmp] = await Promise.all([
+    pedir("/orcamento?mes=" + mesAtual).catch(() => null),
+    pedir("/previsao?ate=" + fimMes).catch(() => null),
+    pedir("/comparar?mes_a=" + mesAnterior(mesAtual) + "&mes_b=" + mesAtual).catch(() => null),
+  ]);
+
+  let htmlOrc;
+  if (orc && orc.total_limite_centavos > 0) {
+    const pct = Math.round(orc.total_gasto_centavos / orc.total_limite_centavos * 100);
+    const cor = pct > 100 ? "var(--vermelho)" : (pct >= 80 ? "var(--amarelo)" : "var(--verde)");
+    htmlOrc = resumoCardHTML("orcamento", "Orçamento do mês",
+      `${reais(orc.total_gasto_centavos / 100)} <small>/ ${reais(orc.total_limite_centavos / 100)}</small>`,
+      `${pct}% consumido`,
+      `<div class="rc-barra"><div style="width:${Math.min(pct, 100)}%;background:${cor}"></div></div>`, "orcamento");
+  } else {
+    htmlOrc = resumoCardHTML("orcamento", "Orçamento do mês", "—", "Sem teto definido", "", "orcamento");
+  }
+
+  let htmlPrev;
+  if (prev) {
+    const neg = prev.saldo_negativo;
+    htmlPrev = resumoCardHTML("previsao", "Saldo projetado", reais(prev.saldo_projetado_centavos / 100),
+      neg ? `Fica negativo em ${fmtDataBR(neg.data)}` : "Projeção até o fim do mês", "", "previsao",
+      neg ? "ruim" : "");
+  } else {
+    htmlPrev = resumoCardHTML("previsao", "Saldo projetado", "—", "Sem dados", "", "previsao");
+  }
+
+  let htmlCmp;
+  if (cmp) {
+    const v = cmpVar(cmp.resumo_a.saiu_centavos, cmp.resumo_b.saiu_centavos, false); // gastar mais = ruim
+    htmlCmp = resumoCardHTML("comparar", "Gasto vs mês passado", reais(cmp.resumo_b.saiu_centavos / 100),
+      `${v.seta} ${v.texto}`, "", "comparar", v.cls === "sobe" ? "bom" : (v.cls === "desce" ? "ruim" : ""));
+  } else {
+    htmlCmp = resumoCardHTML("comparar", "Gasto vs mês passado", "—", "Sem dados", "", "comparar");
+  }
+
+  el.innerHTML = htmlFatura + htmlOrc + htmlPrev + htmlCmp;
 }
 
 // E4: regras de salário — troca o rótulo do campo valor conforme o modo
