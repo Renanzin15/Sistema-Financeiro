@@ -1781,3 +1781,36 @@ escondido quando o servidor não tem OCR (mesma checagem `/ocr-status` que já e
 (SQLite + OCR local, token HS256): anexo dispara o fluxo real e **preenche o formulário** com esses
 valores + mensagem de sucesso; bloco visível quando OCR disponível. Erro de arquivo inválido é tratado
 com mensagem amigável (não quebra). Só mudou `index.html` + `app.js`.
+
+## Etapa 28 — Tela de Licenças (assinaturas com periodicidade → agenda/fatura) (23/09/2026)
+
+Pedido do Renan: uma tela de **controle de licenças** que a gente assina, conectada às faturas —
+"cria a licença → bate na agenda → cria a fatura". Como as **Assinaturas** existentes já fazem
+"recorrência mensal → conta/fatura", alinhei o que diferencia: **tela dedicada**, **periodicidade**
+(mensal/trimestral/semestral/anual — o motor antigo só fazia mensal), campos **opcionais** e foco em
+**uso pessoal** (nada de seats/enterprise). Decisões dele: tela nova; escolhe na hora se cai em conta
+avulsa ou fatura; campos extras = **fornecedor** + **data de renovação** (juntei a renovação com o
+vencimento numa data só — a próxima cobrança É a renovação; pra uso pessoal, duas datas confundem).
+
+**Backend (`main.py`):** tabela nova `licencas` (nome, fornecedor, valor_centavos, periodicidade,
+proximo_vencimento, tipo, conta_fatura_id, user_id) — criada sozinha no boot (SQLite `CREATE TABLE IF
+NOT EXISTS` + DDL Postgres), **sem migração manual**. Helper `_avancar_periodo(data, periodicidade)`
+soma 1/3/6/12 meses ajustando fim de mês (31/01 +mês → 28/02). `gerar_licencas(user_id)` gera, para
+cada licença, as cobranças com vencimento ≤ fim do mês atual (este mês + atrasadas), como **conta
+avulsa** (dedup por nome+vencimento) OU **item de fatura** (dedup por conta+desc+mês), e **avança o
+próximo vencimento** pelo período. Roda ao criar a licença e dentro de `listar_contas` (junto de
+`gerar_recorrentes_do_mes`), então as cobranças aparecem na agenda sozinhas. Rotas: `POST/GET/PUT/DELETE
+/licencas` (isoladas por `user_id`, validam periodicidade/valor/data/fatura). Apagar a licença NÃO
+apaga as cobranças já geradas (igual às assinaturas).
+
+**Front (`index.html` + `app.js`):** item de menu "Licenças" (ícone novo `licenca`=medalha), tela com
+lista + formulário (nome, fornecedor opcional, valor, periodicidade, vencimento/renovação, categoria,
+"cobrar em" = avulsa ou fatura). `carregarLicencas` popula o select de faturas a partir de `CONTAS`
+(chamado dentro de `carregarContas`). `criarLicenca`/`apagarLicenca` no padrão das assinaturas.
+
+**Testado:** 20/20 no backend isolado (SQLite) — `_avancar_periodo` nas 4 periodicidades c/ ajuste de
+fim de mês; criar licença avulsa gera a conta na agenda deste mês e avança o próximo p/ +1 ano; mensal
+na fatura vira item (não vira avulsa); não duplica em recargas; validações; isolamento A×B; apagar
+mantém a cobrança gerada. **Teste visual no navegador**: tela renderiza, criei "Windows 11 Pro" (anual,
+avulsa) → conta R$99 na agenda + próx. 2027; "Figma" (mensal, na fatura) → item de R$45 na fatura;
+"Contas a pagar R$144" batendo; zero erros de console.

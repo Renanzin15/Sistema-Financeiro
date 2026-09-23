@@ -34,7 +34,8 @@ const ICONES = {
   menos: '<line x1="5" y1="12" x2="19" y2="12"/>',
   categoria: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   gatilho: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
-  importar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'
+  importar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  licenca: '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -495,7 +496,7 @@ async function carregarContas() {
   // soma o que ainda FALTA pagar (restante desconta pagamentos parciais já feitos)
   contas.forEach(c => { if (!c.paga) falta += (c.restante_reais != null ? c.restante_reais : c.valor_reais); });
   document.getElementById("ct-contas").textContent = reais(falta);
-  if (contas.length === 0) { lista.innerHTML = '<div class="vazio">Nenhuma conta cadastrada.</div>'; await carregarRecorrentes(); return; }
+  if (contas.length === 0) { lista.innerHTML = '<div class="vazio">Nenhuma conta cadastrada.</div>'; await carregarRecorrentes(); await carregarLicencas(); return; }
 
   // ordena: não pagas primeiro, e dentro delas as que vencem antes
   contas.sort((a, b) => {
@@ -563,6 +564,7 @@ async function carregarContas() {
   lista.innerHTML = html;
   // E2: as assinaturas dependem de CONTAS (faturas) já estar carregado
   await carregarRecorrentes();
+  await carregarLicencas();   // licenças também usam as faturas de CONTAS
 }
 
 // ---- mini-calendário de vencimentos (Visão geral) ----
@@ -1512,6 +1514,64 @@ async function criarRecorrente() {
   } catch (e) { aviso(e.message, "erro"); }
 }
 
+// ===== Licenças (assinaturas com periodicidade) =====
+const PERIODO_LABEL = { mensal: "Mensal", trimestral: "Trimestral", semestral: "Semestral", anual: "Anual" };
+
+async function carregarLicencas() {
+  const lics = await pedir("/licencas");
+  const faturas = (CONTAS || []).filter(c => c.tipo_conta === "fatura");
+  const nomeFatura = {}; faturas.forEach(f => { nomeFatura[f.id] = f.nome; });
+  // popula o select "cobrar em" do formulário (faturas de cartão disponíveis)
+  const lf = document.getElementById("lc-fatura");
+  if (lf) {
+    const atual = lf.value;
+    lf.innerHTML = `<option value="">Conta avulsa (aparece nas dívidas)</option>` +
+      faturas.map(f => `<option value="${f.id}">Fatura: ${f.nome}</option>`).join("");
+    lf.value = atual;
+  }
+  const lista = document.getElementById("lista-licencas");
+  if (!lista) return;
+  if (lics.length === 0) { lista.innerHTML = '<div class="vazio">Nenhuma licença cadastrada.</div>'; return; }
+  lista.innerHTML = lics.map(l => {
+    const destino = l.conta_fatura_id ? `fatura <b>${nomeFatura[l.conta_fatura_id] || "?"}</b>` : "conta avulsa";
+    const forn = l.fornecedor ? `${l.fornecedor} · ` : "";
+    return `<div class="item">
+      <div><div class="nome">${l.nome}</div>
+        <div class="sub">${forn}${PERIODO_LABEL[l.periodicidade] || l.periodicidade} · próx. ${l.proximo_vencimento || "—"} · ${destino}</div></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="valor menos">${reais(l.valor_reais)}</span>
+        <button class="perigo ib" title="Apagar" onclick="apagarLicenca(${l.id})">${ico('apagar')}</button>
+      </div></div>`;
+  }).join("");
+}
+
+async function criarLicenca() {
+  const nome = document.getElementById("lc-nome").value.trim();
+  const fornecedor = document.getElementById("lc-fornecedor").value.trim();
+  const valor = document.getElementById("lc-valor").value;
+  const periodicidade = document.getElementById("lc-periodo").value;
+  const venc = document.getElementById("lc-venc").value;
+  const tipo = document.getElementById("lc-tipo").value;
+  const faturaVal = document.getElementById("lc-fatura").value;
+  if (!nome) return aviso("Preencha o nome da licença.", "erro");
+  if (!valor || parseFloat(valor) <= 0) return aviso("Preencha o valor.", "erro");
+  if (!venc) return aviso("Preencha o vencimento.", "erro");
+  const conta_fatura_id = faturaVal ? parseInt(faturaVal) : null;
+  try {
+    await pedir("/licencas", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome, fornecedor: fornecedor || null, valor_centavos: paraCentavos(valor),
+        periodicidade, proximo_vencimento: venc, tipo, conta_fatura_id }) });
+    document.getElementById("lc-nome").value = ""; document.getElementById("lc-fornecedor").value = "";
+    document.getElementById("lc-valor").value = ""; document.getElementById("lc-venc").value = "";
+    aviso("Licença cadastrada — 1ª cobrança na agenda se for deste mês.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function apagarLicenca(id) {
+  try { await pedir("/licencas/" + id, { method: "DELETE" }); aviso("Licença apagada.", "ok"); carregarTudo(); }
+  catch (e) { aviso(e.message, "erro"); }
+}
+
 async function pagarConta(id) {
   const caixinhaId = document.getElementById("pagar-" + id).value;
   if (!caixinhaId) return aviso("Crie uma caixinha para pagar.", "erro");
@@ -1850,7 +1910,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", categorias: "Categorias", regras: "Regras", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
