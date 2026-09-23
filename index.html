@@ -28,6 +28,7 @@
   <button class="item-menu" data-tela="historico"><span class="ico" data-ico="historico" data-ico-size="19"></span><span>Histórico</span></button>
   <button class="item-menu" data-tela="analise"><span class="ico" data-ico="analise" data-ico-size="19"></span><span>Análise</span></button>
   <button class="item-menu" data-tela="previsao"><span class="ico" data-ico="previsao" data-ico-size="19"></span><span>Previsão</span></button>
+  <button class="item-menu" data-tela="orcamento"><span class="ico" data-ico="orcamento" data-ico-size="19"></span><span>Orçamento</span></button>
   <button class="item-menu" data-tela="categorias"><span class="ico" data-ico="categoria" data-ico-size="19"></span><span>Categorias</span></button>
   <button class="item-menu" data-tela="regras"><span class="ico" data-ico="gatilho" data-ico-size="19"></span><span>Regras</span></button>
   <button class="item-menu" data-tela="licencas"><span class="ico" data-ico="licenca" data-ico-size="19"></span><span>Licenças</span></button>
@@ -192,10 +193,13 @@
         <div class="painel">
           <h3 style="font-size:14px;margin-bottom:12px">Tirar do saldo livre</h3>
           <div class="campo-duplo">
-            <div class="campo"><label>Descrição</label><input id="s-desc" placeholder="Saque"></div>
+            <div class="campo"><label>Descrição</label><input id="s-desc" placeholder="Saque" oninput="sugerirCategoriaGasto()"></div>
             <div class="campo"><label>Valor (R$)</label><input id="s-valor" type="number" step="0.01" placeholder="100,00"></div>
           </div>
-          <div class="campo"><label>Data (opcional)</label><input id="s-data" type="date"></div>
+          <div class="campo-duplo">
+            <div class="campo"><label>Categoria (opcional)</label><select id="s-categoria" onchange="this.dataset.tocado='1'"><option value="">— sem categoria —</option></select></div>
+            <div class="campo"><label>Data (opcional)</label><input id="s-data" type="date"></div>
+          </div>
           <button class="acao" onclick="tirarSaldoLivre()">Registrar saída</button>
         </div>
       </div>
@@ -447,6 +451,21 @@
       </div>
       <h3 style="font-size:14px;margin-bottom:12px">Eventos previstos</h3>
       <div id="prev-eventos"></div>
+    </div>
+  </section>
+
+  <!-- ORÇAMENTO POR CATEGORIA (Mudança 2) -->
+  <section class="tela" id="orcamento">
+    <div class="painel">
+      <h2>Orçamento por categoria 🎯</h2>
+      <div class="sub" style="margin-bottom:14px">Defina um <b>teto de gasto</b> por categoria. O sistema soma o <b>gasto livre</b> (com categoria) e as <b>dívidas pagas</b> daquela categoria no mês. Amarelo ao passar de 80%, vermelho ao estourar.</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="chip ib" onclick="orcMudarMes(-1)" title="Mês anterior">◀</button>
+        <input id="orc-mes" type="month" onchange="orcMesInput()" style="max-width:180px">
+        <button class="chip ib" onclick="orcMudarMes(1)" title="Próximo mês">▶</button>
+      </div>
+      <div id="orc-resumo" style="margin-bottom:16px"></div>
+      <div id="orc-lista"></div>
     </div>
   </section>
 </main>

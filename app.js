@@ -13,6 +13,19 @@ const SUPABASE_KEY = "sb_publishable_wj2N907DWBA6mg4xylkehw_UiOXSaY6";
 let HIST = [];              // F3: lançamentos carregados do histórico
 let filtroHist = "tudo";   // F3: filtro ativo (tudo/entradas/saidas/caixinhas)
 let buscaHist = "";        // F3: termo de busca por descrição
+let CATEGORIAS = [];        // M2: categorias do usuário (pra auto-sugestão e orçamento)
+let orcMes = null;          // M2: mês em edição na tela Orçamento (AAAA-MM)
+// M2: palavra na descrição -> categoria provável (espelho do MAPA_PALAVRAS do back-end)
+const MAPA_CATEGORIA = {
+  uber:"transporte","99":"transporte","99pop":"transporte",cabify:"transporte",posto:"transporte",
+  combustivel:"transporte",gasolina:"transporte",ipva:"transporte",
+  ifood:"alimentação",rappi:"alimentação",mercado:"alimentação",supermercado:"alimentação",
+  restaurante:"alimentação",padaria:"alimentação",lanche:"alimentação",acougue:"alimentação",
+  netflix:"assinaturas",spotify:"assinaturas",amazon:"assinaturas",prime:"assinaturas",
+  disney:"assinaturas",youtube:"assinaturas",hbo:"assinaturas",
+  farmacia:"saúde",drogaria:"saúde",hospital:"saúde",clinica:"saúde",
+  luz:"contas",energia:"contas",agua:"contas",internet:"contas",telefone:"contas",aluguel:"contas",condominio:"contas"
+};
 
 // E: ícones SVG embutidos (sem depender de internet). stroke=currentColor herda a cor do contexto.
 const ICONES = {
@@ -36,7 +49,9 @@ const ICONES = {
   gatilho: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
   importar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   licenca: '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
-  previsao: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>'
+  previsao: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+  orcamento: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  salvar: '<polyline points="20 6 9 17 4 12"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -1122,9 +1137,17 @@ async function abrirRetrospectiva() {
 // Categorias: preenche os dropdowns de conta/assinatura e a lista de gerenciamento
 async function carregarCategorias() {
   const cats = await pedir("/categorias");
+  CATEGORIAS = cats;
   const opcoes = cats.map(c => `<option value="${c.nome}">${c.nome}</option>`).join("");
   document.getElementById("ct-tipo").innerHTML = opcoes || '<option value="">— crie uma categoria —</option>';
   document.getElementById("r-tipo").innerHTML = opcoes || '<option value="">— crie uma categoria —</option>';
+  // M2: dropdown de categoria do gasto livre (sempre com a opção "sem categoria")
+  const selGasto = document.getElementById("s-categoria");
+  if (selGasto) {
+    const atual = selGasto.value;
+    selGasto.innerHTML = '<option value="">— sem categoria —</option>' + opcoes;
+    selGasto.value = atual;
+  }
   const lista = document.getElementById("lista-categorias");
   if (cats.length === 0) { lista.innerHTML = '<div class="vazio">Nenhuma categoria. Crie a primeira ao lado.</div>'; return; }
   lista.innerHTML = cats.map(c => `
@@ -1146,6 +1169,103 @@ async function apagarCategoria(id) {
   try {
     await pedir("/categorias/" + id, { method: "DELETE" });
     aviso("Categoria apagada.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+// ===== M2: Orçamento por categoria =====
+function orcMesLabel(mes) {
+  const [a, m] = mes.split("-");
+  const nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+  return `${nomes[parseInt(m) - 1]}/${a}`;
+}
+function orcMudarMes(delta) {
+  if (!orcMes) orcMes = new Date().toISOString().slice(0, 7);
+  let [a, m] = orcMes.split("-").map(Number);
+  m += delta;
+  if (m < 1) { m = 12; a--; } else if (m > 12) { m = 1; a++; }
+  orcMes = `${a}-${String(m).padStart(2, "0")}`;
+  document.getElementById("orc-mes").value = orcMes;
+  carregarOrcamento();
+}
+function orcMesInput() {
+  const v = document.getElementById("orc-mes").value;
+  if (v) { orcMes = v; carregarOrcamento(); }
+}
+async function carregarOrcamento() {
+  if (!orcMes) orcMes = new Date().toISOString().slice(0, 7);
+  document.getElementById("orc-mes").value = orcMes;
+  let d;
+  try {
+    d = await pedir("/orcamento?mes=" + orcMes);
+  } catch (e) { aviso(e.message, "erro"); return; }
+  renderOrcamento(d);
+}
+function renderOrcamento(d) {
+  const resumo = document.getElementById("orc-resumo");
+  const lista = document.getElementById("orc-lista");
+  if (!d.itens.length) {
+    resumo.innerHTML = "";
+    lista.innerHTML = '<div class="vazio">Você ainda não tem categorias. Crie categorias na aba <b>Categorias</b> e defina um teto aqui.</div>';
+    return;
+  }
+  const comTeto = d.itens.filter(i => i.limite_centavos != null);
+  if (comTeto.length) {
+    const restante = d.total_limite_centavos - d.total_gasto_centavos;
+    const pctTotal = d.total_limite_centavos ? Math.round(d.total_gasto_centavos / d.total_limite_centavos * 100) : 0;
+    resumo.innerHTML = `
+      <div class="painel" style="background:var(--fundo);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div><div class="sub">Teto total (${orcMesLabel(d.mes)})</div><div style="font-size:18px;font-weight:700">${reais(d.total_limite_centavos / 100)}</div></div>
+        <div><div class="sub">Gasto</div><div style="font-size:18px;font-weight:700">${reais(d.total_gasto_centavos / 100)}</div></div>
+        <div><div class="sub">Resta</div><div style="font-size:18px;font-weight:700;color:${restante < 0 ? "var(--vermelho)" : "var(--verde)"}">${reais(restante / 100)}</div></div>
+        <div><div class="sub">Consumido</div><div style="font-size:18px;font-weight:700">${pctTotal}%</div></div>
+      </div>`;
+  } else {
+    resumo.innerHTML = '<div class="sub" style="margin-bottom:6px">Nenhum teto definido para este mês. Defina um limite nas categorias abaixo.</div>';
+  }
+  const CORES = { ok: "var(--verde)", atencao: "var(--amarelo)", estourou: "var(--vermelho)", sem_teto: "var(--borda)" };
+  lista.innerHTML = d.itens.map(i => {
+    const temTeto = i.limite_centavos != null;
+    const cor = CORES[i.status];
+    const pct = temTeto ? Math.min(i.pct, 100) : 0;
+    const barra = temTeto ? `
+      <div style="height:8px;background:var(--fundo);border-radius:6px;overflow:hidden;margin:8px 0">
+        <div style="height:100%;width:${pct}%;background:${cor};transition:width .3s"></div>
+      </div>` : "";
+    const info = temTeto
+      ? `<div class="sub">${reais(i.gasto_centavos / 100)} de ${reais(i.limite_centavos / 100)} · ${i.status === "estourou" ? `<b style="color:var(--vermelho)">estourou ${reais((i.gasto_centavos - i.limite_centavos) / 100)}</b>` : `resta ${reais(i.restante_centavos / 100)}`} · ${i.pct}%</div>`
+      : `<div class="sub">Gasto ${reais(i.gasto_centavos / 100)} · <span style="opacity:.7">sem teto definido</span></div>`;
+    const limiteAtual = temTeto ? (i.limite_centavos / 100).toFixed(2) : "";
+    return `<div class="item" style="align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div class="nome">${i.categoria} ${temTeto && i.status !== "ok" ? (i.status === "estourou" ? "🔴" : "🟡") : ""}</div>
+        ${barra}${info}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-left:10px">
+        <input type="number" step="0.01" min="0" placeholder="teto" value="${limiteAtual}" id="orc-in-${cssId(i.categoria)}" style="width:92px" onkeydown="if(event.key==='Enter')salvarTeto('${escAttr(i.categoria)}')">
+        <button class="acao ib" title="Salvar teto" onclick="salvarTeto('${escAttr(i.categoria)}')">${ico('salvar', 15)}</button>
+        ${temTeto ? `<button class="perigo ib" title="Remover teto deste mês" onclick="removerTeto('${escAttr(i.categoria)}')">${ico('apagar', 15)}</button>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+function cssId(s) { return s.replace(/[^a-zA-Z0-9]/g, "_"); }
+function escAttr(s) { return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+async function salvarTeto(categoria) {
+  const inp = document.getElementById("orc-in-" + cssId(categoria));
+  const v = inp.value;
+  if (v === "" || v == null) return aviso("Informe o valor do teto.", "erro");
+  const centavos = paraCentavos(v);
+  if (isNaN(centavos) || centavos < 0) return aviso("Valor inválido.", "erro");
+  try {
+    await pedir("/orcamento", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoria, mes: orcMes, limite_centavos: centavos }) });
+    aviso("Teto salvo.", "ok"); carregarOrcamento();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function removerTeto(categoria) {
+  try {
+    await pedir("/orcamento?categoria=" + encodeURIComponent(categoria) + "&mes=" + orcMes, { method: "DELETE" });
+    aviso("Teto removido deste mês.", "ok"); carregarOrcamento();
   } catch (e) { aviso(e.message, "erro"); }
 }
 
@@ -1431,15 +1551,30 @@ async function gastarCaixinha() {
   } catch (e) { aviso(e.message, "erro"); }
 }
 
+// M2: ao digitar a descrição do gasto livre, pré-seleciona a categoria pela palavra-chave
+// (só se o usuário tiver uma categoria com esse nome e ainda não tiver escolhido uma na mão).
+function sugerirCategoriaGasto() {
+  const sel = document.getElementById("s-categoria");
+  if (!sel || sel.dataset.tocado === "1") return;
+  const d = (document.getElementById("s-desc").value || "").toLowerCase();
+  let alvo = null;
+  for (const palavra in MAPA_CATEGORIA) { if (d.includes(palavra)) { alvo = MAPA_CATEGORIA[palavra]; break; } }
+  if (!alvo) { sel.value = ""; return; }
+  const cat = CATEGORIAS.find(c => c.nome.toLowerCase() === alvo);
+  sel.value = cat ? cat.nome : "";
+}
+
 async function tirarSaldoLivre() {
   const desc = document.getElementById("s-desc").value || "saída";
   const valor = document.getElementById("s-valor").value;
   const data = document.getElementById("s-data").value || null;
+  const categoria = document.getElementById("s-categoria").value || null;
   if (!valor) return aviso("Informe o valor.", "erro");
   try {
     await pedir("/lancamentos", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tipo: "saida_livre", valor_centavos: paraCentavos(valor), descricao: desc, caixinha_id: null, data }) });
+      body: JSON.stringify({ tipo: "saida_livre", valor_centavos: paraCentavos(valor), descricao: desc, caixinha_id: null, data, categoria }) });
     document.getElementById("s-desc").value = ""; document.getElementById("s-valor").value = ""; document.getElementById("s-data").value = "";
+    const sel = document.getElementById("s-categoria"); sel.value = ""; delete sel.dataset.tocado;
     aviso("Saída registrada.", "ok"); carregarTudo();
   } catch (e) { aviso(e.message, "erro"); }
 }
@@ -2012,7 +2147,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", previsao: "Previsão", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", previsao: "Previsão", orcamento: "Orçamento", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
@@ -2023,6 +2158,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     document.getElementById(tela).classList.add("ativa");
     document.getElementById("titulo-tela").textContent = titulos[tela];
     if (tela === "previsao") carregarPrevisao();   // previsão carrega ao abrir (dado fresco do servidor)
+    if (tela === "orcamento") carregarOrcamento();  // M2: orçamento carrega ao abrir
   });
 });
 

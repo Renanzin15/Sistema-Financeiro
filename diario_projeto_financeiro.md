@@ -1845,3 +1845,41 @@ filtro de horizonte, renda futura do mês, alerta de negativo, série ordenada, 
 isolamento A×B. **Navegador**: cenário saldo R$2.450 + salário + 2 contas + assinatura → cards (atual
 R$2.450 / +R$1.700 / −R$327,25 / projetado R$3.822,75), gráfico e eventos corretos; "próximo mês" soma
 o salário 2× (R$3.400) corretamente; zero erros de console. Mudou `main.py` + `index.html` + `app.js`.
+
+## Etapa 30 — Orçamento por categoria (Mudança 2 do plano de evolução) (23/09/2026)
+
+Segunda mudança. Objetivo: teto de gasto por categoria, comparando limite × quanto já gastei no mês.
+
+**Descoberta que guiou o desenho:** hoje só as **dívidas/contas** têm categoria (o campo `tipo`); o
+**gasto livre** (`saida_livre`) não guardava categoria, e a pizza da Análise mostra caixinhas, não
+gasto por categoria. Ou seja, "quanto gastei por categoria" não existia de verdade. Decisões combinadas
+com o Renan: base = **mistura** (gasto livre passa a ter categoria **auto-sugerida pela palavra, editável**
+— uber→transporte etc.); limite **mensal, editável, valendo do mês em diante** (meses passados guardam o
+que tinham); alerta em **dois níveis** (amarelo ≥80%, vermelho ao estourar); pagar dívida **consome** o
+teto da categoria (tipo da conta); gastos antigos ficam "sem categoria" (não dá pra recategorizar o
+passado); orçamento é só teto de **despesa**.
+
+**DB:** coluna `categoria` em `lancamentos` (SQLite migrar + Postgres ALTER; só o gasto livre usa, antigos
+NULL). Tabela nova `orcamentos` (categoria, mes 'AAAA-MM', limite_centavos, user_id) — criada no boot.
+
+**Backend (`main.py`):** `sugerir_categoria(con,user,desc)` mapeia palavra→categoria mas só retorna se o
+usuário tiver essa categoria (case-insensitive). `criar_lancamento` grava a categoria do gasto livre (a
+que veio do front ou a sugerida). `gasto_por_categoria(con,user,mes)` soma gasto livre (por categoria) +
+dívidas pagas (categoria = `tipo` da conta ligada por `conta_paga_id`) no mês. `limite_categoria` pega a
+linha mais recente com mes ≤ o pedido ("vale deste mês em diante"). Rotas `GET /orcamento?mes=` (por
+categoria: limite, gasto, restante, pct, status ok/atencao/estourou/sem_teto; razão crua decide o status
+p/ não disparar alerta por arredondamento), `POST /orcamento` (define/edita), `DELETE /orcamento`. Apagar
+categoria remove seus tetos.
+
+**Front (`index.html` + `app.js`):** menu "Orçamento" (ícone alvo) + tela com seletor de mês (◀▶ e
+input month), resumo (teto/gasto/resta/%), barras por categoria (verde/🟡≥80%/🔴 estourou), edição do
+teto inline e botão de remover. No "Tirar do saldo livre": campo Categoria com auto-sugestão ao digitar
+(espelho do MAPA_PALAVRAS; não sobrescreve se o usuário escolher na mão).
+
+**Testado:** 24/24 no backend isolado (SQLite) — teto, gasto livre + dívida paga consumindo, auto-sugestão,
+80%/estouro, "vale deste mês em diante" (out=900→nov herda→set 800→ago sem teto), remoção herda anterior,
+isolamento A×B, validações, limpeza ao apagar categoria. **Navegador** (salário R$8.000; tetos
+Alim.R$800/Transp.R$300/Contas R$400): Alimentação 🟡 R$680 (85%), Transporte 🔴 R$350 (117%, estourou
+R$50), Contas R$220 vindo de uma dívida (Luz) paga; auto-sugestão uber→Transporte, mercado→Alimentação,
+netflix/pizza→vazio; editar teto inline e navegar de mês (herança) OK; zero erros reais no console.
+(Obs.: instalei `httpx` no Python local — dependência do TestClient de teste, não afeta o app.)
