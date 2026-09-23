@@ -410,6 +410,14 @@
   .orc-hero-stats .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .orc-aviso-vazio { font-size: 13px; color: var(--texto2); margin-bottom: 16px; }
 
+  #orc-mes {
+    font-family: inherit; font-size: 13.5px; font-weight: 600; padding: 9px 12px;
+    color: var(--texto); background: var(--painel2); border: 1px solid var(--borda);
+    border-radius: var(--r-ctl); color-scheme: dark; cursor: pointer;
+  }
+  #orc-mes:focus { outline: none; border-color: rgba(139,92,246,.7); box-shadow: 0 0 0 4px rgba(139,92,246,.16); }
+  #orc-mes::-webkit-calendar-picker-indicator { filter: invert(.7); cursor: pointer; }
+
   .orc-barra { height: 9px; background: var(--surface-3); border-radius: 6px; overflow: hidden; }
   .orc-barra > div { height: 100%; border-radius: 6px; transition: width .5s var(--ease); }
 

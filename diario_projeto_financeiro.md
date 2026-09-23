@@ -1899,3 +1899,6 @@ visível em cada linha, sem hierarquia. Redesenhei (só `app.js` + `styles.css`,
 **Testado no navegador (desktop + mobile 375px):** hero/cards/pills/barras corretos; edição abre-salva-
 cancela; salvar recalcula na hora (Alimentação 800→900 → pill verde 76%, hero R$1.600/78%); empilha no
 celular; zero erros de console.
+
+**Ajuste (23/09/2026):** o seletor de mês (`input type=month`) aparecia branco no tema escuro; corrigido
+com `color-scheme: dark` + `filter` no ícone do calendário (`#orc-mes` no styles.css).
