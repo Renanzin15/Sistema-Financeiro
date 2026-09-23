@@ -25,6 +25,7 @@
   <button class="item-menu ativa" data-tela="dashboard"><span class="ico" data-ico="dashboard" data-ico-size="19"></span><span>Visão geral</span></button>
   <button class="item-menu" data-tela="caixinhas"><span class="ico" data-ico="caixinha" data-ico-size="19"></span><span>Caixinhas</span></button>
   <button class="item-menu" data-tela="contas"><span class="ico" data-ico="dividas" data-ico-size="19"></span><span>Dívidas</span></button>
+  <button class="item-menu" data-tela="cartoes"><span class="ico" data-ico="cartaocred" data-ico-size="19"></span><span>Cartões</span></button>
   <button class="item-menu" data-tela="historico"><span class="ico" data-ico="historico" data-ico-size="19"></span><span>Histórico</span></button>
   <button class="item-menu" data-tela="analise"><span class="ico" data-ico="analise" data-ico-size="19"></span><span>Análise</span></button>
   <button class="item-menu" data-tela="previsao"><span class="ico" data-ico="previsao" data-ico-size="19"></span><span>Previsão</span></button>
@@ -463,6 +464,32 @@
       </div>
       <h3 style="font-size:14px;margin-bottom:12px">Eventos previstos</h3>
       <div id="prev-eventos"></div>
+    </div>
+  </section>
+
+  <!-- CARTÕES DE CRÉDITO (Mudança 5) -->
+  <section class="tela" id="cartoes">
+    <div class="paineis">
+      <div>
+        <div class="painel">
+          <h2>Meus cartões 💳</h2>
+          <div class="sub" style="margin-bottom:14px">Cada cartão tem limite, dia de fechamento e vencimento. As compras caem na fatura do mês (depois do fechamento, vão pro mês seguinte). A fatura é paga na tela <b>Dívidas</b>.</div>
+          <div id="lista-cartoes"></div>
+        </div>
+      </div>
+      <div>
+        <div class="painel">
+          <h2>Novo cartão</h2>
+          <div class="campo"><label>Nome</label><input id="ct-nome" placeholder="Ex.: Nubank, Inter..."></div>
+          <div class="campo"><label>Limite (R$)</label><input id="ct-limite" type="number" step="0.01" placeholder="2000,00"></div>
+          <div class="campo-duplo">
+            <div class="campo"><label>Dia de fechamento</label><input id="ct-fechamento" type="number" min="1" max="28" placeholder="25"></div>
+            <div class="campo"><label>Dia de vencimento</label><input id="ct-vencimento" type="number" min="1" max="28" placeholder="5"></div>
+          </div>
+          <button class="acao" id="ct-btn" onclick="criarCartao()">Adicionar cartão</button>
+          <div class="sub" style="margin-top:12px">Dias entre 1 e 28 (pra funcionar em todo mês).</div>
+        </div>
+      </div>
     </div>
   </section>
 

@@ -1952,3 +1952,39 @@ alerta leva pra tela relacionada (contas/previsao/orcamento/comparar). `carregar
 não-lidos, marcar-lidos zera, alerta novo reconta, isolamento A×B. **Navegador**: badge=6, card na Visão
 geral, painel com 6 alertas ordenados e mensagens claras; abrir zera badge; clicar navega e fecha; ok no
 mobile; zero erros de console. Alertas de categoria/padrão só valem de set/2026 em diante.
+
+## Etapa 34 — Cartão de crédito (Mudança 5 do plano de evolução) (23/09/2026)
+
+Quinta mudança, a mais complexa. Decisões do Renan: cartão como **entidade nova**; escopo **completo**
+(limite + disponível, parcelas, fatura mensal automática, vincular assinaturas/licenças); **tela nova
+"Cartões"**; fechamento **padrão de cartão** (depois do fechamento vai pro mês seguinte); disponível =
+**limite − tudo em aberto** (incl. parcelas futuras). Construído e testado em partes.
+
+**DB:** tabela `cartoes` (nome, limite_centavos, dia_fechamento, dia_vencimento). Colunas novas:
+`contas.cartao_id` + `contas.competencia` (a fatura mensal é uma conta tipo_conta='fatura' ligada ao
+cartão e marcada com AAAA-MM); `recorrentes.cartao_id` e `licencas.cartao_id`. Tudo aditivo (IF NOT EXISTS
+/ migração SQLite), compatível com faturas/assinaturas/licenças antigas.
+
+**Backend (`main.py`):** helpers `_competencia_compra` (fechamento decide o mês), `_somar_meses`,
+`_vencimento_fatura`, `_achar_ou_criar_fatura`, `_usado_cartao`. Rotas `POST/GET/PUT/DELETE /cartoes` e
+`POST /cartoes/{id}/compra` (à vista ou parcelada: parcela 1 na competência da compra, demais nos meses
+seguintes; divide igual e a última absorve a sobra). `GET /cartoes` traz limite/usado/disponível +
+faturas (competência, vencimento, total, paga). Apagar cartão não perde histórico (faturas viram
+avulsas; assinaturas/licenças desvinculadas). Geradores `gerar_recorrentes_do_mes` e `gerar_licencas`
+ganharam o caminho do cartão (item na fatura da competência do vencimento, com dedup por conta+descrição).
+Modelos `NovoCartao`/`NovaCompra`; `cartao_id` em NovaRecorrente/NovaLicenca (validado).
+
+**Front (`index.html`+`app.js`+`styles.css`):** menu "Cartões" (ícone `cartaocred`) + tela: cadastro
+(nome/limite/fechamento/vencimento), cartão com barra de limite usado/disponível (verde/amarelo/vermelho,
+mostra estouro), form de compra (descrição/valor/parcelas) e lista de faturas (competência, vencimento,
+total, tag Em aberto/Paga), editar/apagar. Nos selects "cobrar em" de assinaturas e licenças agora
+aparece "Cartão: X" (value `cartao:ID`) além das faturas individuais; `criarRecorrente`/`criarLicenca`
+mandam `cartao_id`. `carregarCartoes` roda no `carregarTudo` antes de contas (pros selects).
+
+**Testado:** 30/30 no backend isolado (24 core + 6 vínculo) — competência por fechamento, parcelas c/
+sobra na última, limite/disponível, pagar fatura libera limite, bloqueio de lançar em fatura paga,
+validações, isolamento, apagar desvincula; assinatura dia 10→fatura do mês, dia 28→mês seguinte, licença
+mensal no cartão, sem duplicar ao recarregar. **Navegador (desktop+mobile)**: cadastro e compra pela UI,
+parcelada 10x espalhando nas 10 faturas, estouro de limite em vermelho, select "cobrar em" com cartões;
+zero erros de console. Obs.: parcela em N meses cria N faturas (correto, mas gera muitas linhas — dá pra
+resumir "próxima fatura" no Dashboard na Mudança 6).

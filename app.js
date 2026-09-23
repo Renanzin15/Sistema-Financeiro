@@ -54,7 +54,8 @@ const ICONES = {
   salvar: '<polyline points="20 6 9 17 4 12"/>',
   fechar: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   comparar: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
-  sino: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'
+  sino: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  cartaocred: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -214,6 +215,7 @@ function sair() {
 
 async function carregarTudo() {
   await carregarBancos();
+  await carregarCartoes();   // M5: CARTOES disponível antes de contas/assinaturas (usado nos selects "cobrar em")
   // lança as entradas recorrentes cujo dia já chegou ANTES de calcular saldos/histórico
   try { await pedir("/entradas-recorrentes/gerar", { method: "POST" }); } catch (e) {}
   // carregarRecorrentes roda dentro de carregarContas (precisa de CONTAS já carregado p/ o vínculo de fatura)
@@ -1483,6 +1485,107 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// ===== M5: Cartões de crédito =====
+let CARTOES = [];
+let cartaoEditando = null;
+async function carregarCartoes() {
+  try { CARTOES = await pedir("/cartoes"); } catch (e) { CARTOES = []; }
+  renderCartoes();
+}
+function renderCartoes() {
+  const el = document.getElementById("lista-cartoes");
+  if (!el) return;
+  if (!CARTOES.length) { el.innerHTML = '<div class="vazio">Nenhum cartão ainda. Cadastre ao lado.</div>'; return; }
+  el.innerHTML = CARTOES.map(k => {
+    const pctReal = k.limite_centavos ? Math.round(k.usado_centavos / k.limite_centavos * 100) : 0;
+    const pct = Math.min(pctReal, 100);
+    const cor = pctReal >= 90 ? "linear-gradient(90deg,#e11d48,var(--vermelho))"
+      : (pctReal >= 70 ? "linear-gradient(90deg,#f59e0b,var(--amarelo))" : "linear-gradient(90deg,var(--verde),#2fb985)");
+    const disp = k.disponivel_centavos;
+    const faturas = k.faturas.length ? k.faturas.map(f => {
+      const tag = f.paga ? '<span class="fatura-tag paga">Paga</span>' : '<span class="fatura-tag aberta">Em aberto</span>';
+      return `<div class="fatura-linha">
+        <div><div class="fl-comp">${f.competencia_label}</div><div class="fl-sub">vence ${fmtDataBR(f.vencimento)}</div></div>
+        <div style="display:flex;align-items:center;gap:10px">${tag}<span class="fl-val">${reais(f.total_centavos / 100)}</span></div>
+      </div>`;
+    }).join("") : '<div class="sub" style="padding:8px 0">Nenhuma fatura ainda — lance uma compra.</div>';
+    return `<div class="cartao">
+      <div class="cartao-topo">
+        <div><div class="cartao-nome">${k.nome}</div><div class="cartao-datas">Fecha dia ${k.dia_fechamento} · vence dia ${k.dia_vencimento}</div></div>
+        <div class="cartao-acoes">
+          <button class="perigo ib" title="Editar" onclick="editarCartao(${k.id})">${ico('editar', 15)}</button>
+          <button class="perigo ib" title="Apagar" onclick="apagarCartao(${k.id})">${ico('apagar', 15)}</button>
+        </div>
+      </div>
+      <div class="cartao-nums"><span>Usado <b>${reais(k.usado_centavos / 100)}</b></span><span>Limite <b>${reais(k.limite_centavos / 100)}</b></span></div>
+      <div class="cartao-barra"><div style="width:${pct}%;background:${cor}"></div></div>
+      <div class="cartao-disp">Disponível <b class="${disp < 0 ? 'neg' : ''}">${reais(disp / 100)}</b> · ${pctReal}% usado</div>
+      <div class="compra-forma">
+        <div class="campo"><label>Compra</label><input id="cp-desc-${k.id}" placeholder="Descrição" onkeydown="if(event.key==='Enter')comprarCartao(${k.id})"></div>
+        <div class="campo"><label>Valor (R$)</label><input id="cp-valor-${k.id}" type="number" step="0.01" placeholder="0,00"></div>
+        <div class="campo"><label>Parcelas</label><input id="cp-parc-${k.id}" type="number" min="1" max="60" value="1"></div>
+        <button class="acao pequeno" onclick="comprarCartao(${k.id})">Lançar</button>
+      </div>
+      <div class="faturas-tit">Faturas</div>
+      ${faturas}
+    </div>`;
+  }).join("");
+}
+async function criarCartao() {
+  const nome = document.getElementById("ct-nome").value.trim();
+  const limite = document.getElementById("ct-limite").value;
+  const fech = document.getElementById("ct-fechamento").value;
+  const venc = document.getElementById("ct-vencimento").value;
+  if (!nome) return aviso("Dê um nome ao cartão.", "erro");
+  if (limite === "" || parseFloat(limite) < 0) return aviso("Informe o limite.", "erro");
+  if (!fech || !venc) return aviso("Informe os dias de fechamento e vencimento.", "erro");
+  const body = { nome, limite_centavos: paraCentavos(limite), dia_fechamento: parseInt(fech), dia_vencimento: parseInt(venc) };
+  try {
+    if (cartaoEditando) {
+      await pedir("/cartoes/" + cartaoEditando, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    } else {
+      await pedir("/cartoes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    }
+    cancelarEdicaoCartao();
+    aviso("Cartão salvo.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+function editarCartao(id) {
+  const k = CARTOES.find(c => c.id === id); if (!k) return;
+  document.getElementById("ct-nome").value = k.nome;
+  document.getElementById("ct-limite").value = (k.limite_centavos / 100).toFixed(2);
+  document.getElementById("ct-fechamento").value = k.dia_fechamento;
+  document.getElementById("ct-vencimento").value = k.dia_vencimento;
+  cartaoEditando = id;
+  const btn = document.getElementById("ct-btn"); if (btn) btn.textContent = "Salvar alterações";
+  document.getElementById("ct-nome").scrollIntoView({ block: "center" });
+}
+function cancelarEdicaoCartao() {
+  cartaoEditando = null;
+  ["ct-nome", "ct-limite", "ct-fechamento", "ct-vencimento"].forEach(i => { const el = document.getElementById(i); if (el) el.value = ""; });
+  const btn = document.getElementById("ct-btn"); if (btn) btn.textContent = "Adicionar cartão";
+}
+async function comprarCartao(cid) {
+  const desc = document.getElementById("cp-desc-" + cid).value.trim();
+  const valor = document.getElementById("cp-valor-" + cid).value;
+  const parc = document.getElementById("cp-parc-" + cid).value || "1";
+  if (!desc) return aviso("Descreva a compra.", "erro");
+  if (!valor || parseFloat(valor) <= 0) return aviso("Informe o valor.", "erro");
+  try {
+    const r = await pedir(`/cartoes/${cid}/compra`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ descricao: desc, valor_centavos: paraCentavos(valor), parcelas: parseInt(parc) }) });
+    aviso(parseInt(parc) > 1 ? `Compra lançada em ${parc}x.` : "Compra lançada.", "ok");
+    carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function apagarCartao(id) {
+  if (!(await confirmar({ titulo: "Apagar este cartão?", texto: "As faturas viram avulsas (continuam nas Dívidas) e assinaturas/licenças ligadas a ele ficam sem cartão.", rotulo: "Apagar", icone: "apagar" }))) return;
+  try {
+    await pedir("/cartoes/" + id, { method: "DELETE" });
+    aviso("Cartão apagado.", "ok"); carregarTudo();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
 // E4: regras de salário — troca o rótulo do campo valor conforme o modo
 function ajustarModoRegra() {
   const modo = document.getElementById("rg-modo").value;
@@ -1576,7 +1679,8 @@ async function carregarRecorrentes() {
   const rf = document.getElementById("r-fatura");
   if (rf) {
     const atual = rf.value;
-    rf.innerHTML = `<option value="">Conta avulsa (aparece nas dívidas)</option>` +
+    const optCartoes = (CARTOES || []).map(k => `<option value="cartao:${k.id}">Cartão: ${k.nome}</option>`).join("");
+    rf.innerHTML = `<option value="">Conta avulsa (aparece nas dívidas)</option>` + optCartoes +
       faturas.map(f => `<option value="${f.id}">Fatura: ${f.nome}</option>`).join("");
     rf.value = atual;
   }
@@ -1855,10 +1959,12 @@ async function criarRecorrente() {
   const tipo = document.getElementById("r-tipo").value;
   const faturaVal = document.getElementById("r-fatura").value;
   if (!nome || !valor || !dia) return aviso("Preencha nome, valor e dia.", "erro");
-  const conta_fatura_id = faturaVal ? parseInt(faturaVal) : null;
+  let conta_fatura_id = null, cartao_id = null;
+  if (faturaVal.startsWith("cartao:")) cartao_id = parseInt(faturaVal.slice(7));
+  else if (faturaVal) conta_fatura_id = parseInt(faturaVal);
   try {
     await pedir("/recorrentes", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nome, valor_centavos: paraCentavos(valor), dia_vencimento: parseInt(dia), tipo, conta_fatura_id }) });
+      body: JSON.stringify({ nome, valor_centavos: paraCentavos(valor), dia_vencimento: parseInt(dia), tipo, conta_fatura_id, cartao_id }) });
     document.getElementById("r-nome").value = ""; document.getElementById("r-valor").value = ""; document.getElementById("r-dia").value = ""; document.getElementById("r-fatura").value = "";
     aviso("Assinatura cadastrada.", "ok"); carregarTudo();
   } catch (e) { aviso(e.message, "erro"); }
@@ -1875,7 +1981,8 @@ async function carregarLicencas() {
   const lf = document.getElementById("lc-fatura");
   if (lf) {
     const atual = lf.value;
-    lf.innerHTML = `<option value="">Conta avulsa (aparece nas dívidas)</option>` +
+    const optCartoes = (CARTOES || []).map(k => `<option value="cartao:${k.id}">Cartão: ${k.nome}</option>`).join("");
+    lf.innerHTML = `<option value="">Conta avulsa (aparece nas dívidas)</option>` + optCartoes +
       faturas.map(f => `<option value="${f.id}">Fatura: ${f.nome}</option>`).join("");
     lf.value = atual;
   }
@@ -1906,11 +2013,13 @@ async function criarLicenca() {
   if (!nome) return aviso("Preencha o nome da licença.", "erro");
   if (!valor || parseFloat(valor) <= 0) return aviso("Preencha o valor.", "erro");
   if (!venc) return aviso("Preencha o vencimento.", "erro");
-  const conta_fatura_id = faturaVal ? parseInt(faturaVal) : null;
+  let conta_fatura_id = null, cartao_id = null;
+  if (faturaVal.startsWith("cartao:")) cartao_id = parseInt(faturaVal.slice(7));
+  else if (faturaVal) conta_fatura_id = parseInt(faturaVal);
   try {
     await pedir("/licencas", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nome, fornecedor: fornecedor || null, valor_centavos: paraCentavos(valor),
-        periodicidade, proximo_vencimento: venc, tipo, conta_fatura_id }) });
+        periodicidade, proximo_vencimento: venc, tipo, conta_fatura_id, cartao_id }) });
     document.getElementById("lc-nome").value = ""; document.getElementById("lc-fornecedor").value = "";
     document.getElementById("lc-valor").value = ""; document.getElementById("lc-venc").value = "";
     aviso("Licença cadastrada — 1ª cobrança na agenda se for deste mês.", "ok"); carregarTudo();
@@ -2361,7 +2470,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", orcamento: "Orçamento", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", orcamento: "Orçamento", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
@@ -2374,6 +2483,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     if (tela === "previsao") carregarPrevisao();   // previsão carrega ao abrir (dado fresco do servidor)
     if (tela === "orcamento") carregarOrcamento();  // M2: orçamento carrega ao abrir
     if (tela === "comparar") carregarComparar();    // M3: comparação carrega ao abrir
+    if (tela === "cartoes") carregarCartoes();       // M5: cartões carregam ao abrir
   });
 });
 
