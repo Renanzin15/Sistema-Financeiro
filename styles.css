@@ -604,3 +604,25 @@
   .insight-card .ic { width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--roxo-claro); flex-shrink: 0; }
   .insight-card .tit { font-size: 14px; font-weight: 650; }
   .insight-card .msg { font-size: 12.5px; color: var(--texto2); margin-top: 3px; line-height: 1.4; }
+
+  /* ===== Configurações (Mudança 8) ===== */
+  .cfg-linha { display: flex; align-items: flex-start; gap: 13px; padding: 13px 0; border-bottom: 1px solid var(--borda); }
+  .cfg-linha:last-of-type { border-bottom: none; }
+  .cfg-txt { flex: 1; min-width: 0; }
+  .cfg-txt b { font-size: 14px; font-weight: 650; display: block; }
+  .cfg-txt span { font-size: 12.5px; color: var(--texto2); display: block; margin-top: 3px; line-height: 1.7; }
+  .cfg-txt input[type=number] {
+    width: 58px; font-family: inherit; font-size: 12.5px; padding: 4px 7px; color: var(--texto);
+    border: 1px solid var(--borda); border-radius: 8px; background: var(--painel); text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .cfg-txt input[type=number]:focus { outline: none; border-color: rgba(139,92,246,.7); box-shadow: 0 0 0 3px rgba(139,92,246,.16); }
+  .cfg-atalhos { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+
+  /* interruptor (switch) */
+  .sw { position: relative; display: inline-block; width: 40px; height: 23px; flex-shrink: 0; margin-top: 1px; }
+  .sw input { opacity: 0; width: 0; height: 0; }
+  .sw span { position: absolute; cursor: pointer; inset: 0; background: var(--surface-3); border: 1px solid var(--borda-2); border-radius: 999px; transition: background .18s var(--ease); }
+  .sw span::before { content: ""; position: absolute; height: 17px; width: 17px; left: 2px; top: 2px; background: #cfc9e8; border-radius: 50%; transition: transform .18s var(--ease), background .18s var(--ease); }
+  .sw input:checked + span { background: var(--grad); border-color: transparent; }
+  .sw input:checked + span::before { transform: translateX(17px); background: #fff; }

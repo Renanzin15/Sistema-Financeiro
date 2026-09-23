@@ -33,7 +33,7 @@
   <button class="item-menu" data-tela="insights"><span class="ico" data-ico="insight" data-ico-size="19"></span><span>Insights</span></button>
   <button class="item-menu" data-tela="orcamento"><span class="ico" data-ico="orcamento" data-ico-size="19"></span><span>Orçamento</span></button>
   <button class="item-menu" data-tela="categorias"><span class="ico" data-ico="categoria" data-ico-size="19"></span><span>Categorias</span></button>
-  <button class="item-menu" data-tela="regras"><span class="ico" data-ico="gatilho" data-ico-size="19"></span><span>Regras</span></button>
+  <button class="item-menu" data-tela="configuracoes"><span class="ico" data-ico="config" data-ico-size="19"></span><span>Configurações</span></button>
   <button class="item-menu" data-tela="licencas"><span class="ico" data-ico="licenca" data-ico-size="19"></span><span>Licenças</span></button>
   <button class="item-menu" data-tela="importar"><span class="ico" data-ico="importar" data-ico-size="19"></span><span>Importar</span></button>
   <button class="item-menu" onclick="sair()" style="margin-top:auto"><span class="ico" data-ico="sair" data-ico-size="19"></span><span>Sair</span></button>
@@ -369,8 +369,14 @@
     </div>
   </section>
 
-  <!-- REGRAS DE SALÁRIO (E4) -->
-  <section class="tela" id="regras">
+  <!-- CONFIGURAÇÕES (Mudança 8) -->
+  <section class="tela" id="configuracoes">
+    <div class="painel">
+      <h2>Notificações e alertas 🔔</h2>
+      <div class="sub" style="margin-bottom:16px">Escolha quais avisos aparecem no sino e na Visão geral, e ajuste os limiares. Desligar um tipo faz ele parar de aparecer.</div>
+      <div id="cfg-alertas"></div>
+      <button class="acao" onclick="salvarConfigAlertas()" style="margin-top:6px">Salvar alertas</button>
+    </div>
     <div class="paineis">
       <div class="painel">
         <h2>Regras de salário ⚡</h2>
@@ -402,6 +408,17 @@
         <button class="acao" onclick="criarEntradaRecorrente()">Adicionar</button>
       </div>
       <div id="lista-entradas-rec" style="margin-top:14px"></div>
+    </div>
+    <div class="painel">
+      <h2>Preferências ⚙️</h2>
+      <div class="cfg-linha">
+        <label class="sw"><input type="checkbox" id="pref-menu" onchange="togglePrefMenu()"><span></span></label>
+        <div class="cfg-txt"><b>Começar com o menu recolhido</b><span>Esconde os rótulos do menu lateral pra sobrar mais espaço (tecla M também alterna).</span></div>
+      </div>
+      <div class="cfg-atalhos">
+        <button class="perigo" onclick="irPara('categorias')">Gerenciar categorias</button>
+        <button class="perigo" onclick="irPara('caixinhas')">Gerenciar caixinhas</button>
+      </div>
     </div>
   </section>
 

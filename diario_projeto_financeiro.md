@@ -2039,3 +2039,32 @@ erros de console.
 ### 🎉 Plano de evolução (7 mudanças) COMPLETO
 M1 Previsão · M2 Orçamento · M3 Comparar · M4 Alertas · M5 Cartões · M6 Dashboard · M7 Insights.
 Próximo passo opcional: Mudança 8 = IA de verdade (a escopar).
+
+## Etapa 37 — Tela de Configurações (Mudança 8) (23/09/2026)
+
+Nova frente (fora das 7 do plano), pedida pelo Renan: uma tela de Configurações no estilo da do Claude,
+centralizando notificações/alertas e regras. Decisões: alertas com **liga/desliga + ajuste de limiares**;
+**mover a tela Regras pra dentro** de Configurações (sai do menu); extras = **preferência de menu
+recolhido** + **atalhos** pra Categorias e Caixinhas.
+
+**Backend (`main.py`):** `_ALERTAS_DEFAULT` + `_config_alertas(con,user)` (default + o que o usuário salvou,
+na tabela `config`, key `alertas_config`). `gerar_alertas` reescrito pra **respeitar** a config: cada tipo
+só roda se `on`, e usa os limiares — conta (dias), saldo (horizonte), orçamento (% de atenção), padrão
+(% de alta + piso em centavos). Rotas `GET /config/alertas` (default+salvo) e `POST /config/alertas`
+(modelo `ConfigAlertasIn` com validações: dias 1–60, horizonte 7–365, orçamento 50–100%, padrão 10–500%).
+Sem tabela nova.
+
+**Front (`index.html`+`app.js`+`styles.css`):** item de menu "Regras" virou "Configurações" (ícone
+`config`=engrenagem). Seção `#regras` renomeada pra `#configuracoes` com 3 blocos: (1) Notificações e
+alertas — `#cfg-alertas` renderizado por JS (`carregarConfig`/`cfgLinha`) com um interruptor (switch CSS
+`.sw`) + campo de limiar por tipo, botão "Salvar alertas" (`salvarConfigAlertas` → recarrega sino e
+resumos); (2) Regras de salário + entradas automáticas (movidas, mesmos ids/JS); (3) Preferências —
+interruptor "menu recolhido" (`togglePrefMenu`, usa o `sb_menu_oculto` que já existia) + atalhos
+`irPara('categorias'/'caixinhas')`. `titulos` e gancho de menu atualizados. Nenhuma referência órfã à
+tela `regras`.
+
+**Testado:** 8/8 no backend isolado — desligar um tipo remove o alerta; ajustar limiar muda o disparo
+(conta 4 dias some com limiar 2; orçamento 85% some com aviso a 90%); `GET` reflete o salvo; validações.
+**Navegador**: menu sem "Regras" e com "Configurações"; 4 controles; desligar "Conta vencendo" + salvar
+derrubou o badge do sino de 2→1 (e gravou no backend); switch de menu recolhido persiste; Regras operam
+na nova casa; zero erros de console.

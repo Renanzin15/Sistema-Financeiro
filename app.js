@@ -56,7 +56,8 @@ const ICONES = {
   comparar: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   sino: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   cartaocred: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
-  insight: '<line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>'
+  insight: '<line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>',
+  config: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -1659,6 +1660,57 @@ async function carregarResumosDash() {
   el.innerHTML = htmlFatura + htmlOrc + htmlPrev + htmlCmp;
 }
 
+// ===== M8: Configurações (alertas + preferências) =====
+function cfgLinha(id, on, titulo, detalhe) {
+  return `<div class="cfg-linha">
+    <label class="sw"><input type="checkbox" id="${id}-on" ${on ? "checked" : ""}><span></span></label>
+    <div class="cfg-txt"><b>${titulo}</b><span>${detalhe}</span></div>
+  </div>`;
+}
+async function carregarConfig() {
+  // preferência de menu (reflete o estado atual)
+  const pm = document.getElementById("pref-menu");
+  if (pm) pm.checked = document.body.classList.contains("menu-oculto");
+  // config de alertas
+  let cfg;
+  try { cfg = await pedir("/config/alertas"); } catch (e) { return; }
+  const el = document.getElementById("cfg-alertas");
+  if (!el) return;
+  el.innerHTML =
+    cfgLinha("al-conta", cfg.conta.on, "Conta vencendo / atrasada",
+      `Avisar quando faltar <input type="number" min="1" max="60" id="al-conta-dias" value="${cfg.conta.dias}"> dia(s) pro vencimento (atrasadas avisam sempre).`) +
+    cfgLinha("al-saldo", cfg.saldo.on, "Saldo indo negativo",
+      `Olhar os próximos <input type="number" min="7" max="365" id="al-saldo-horizonte" value="${cfg.saldo.horizonte}"> dias na Previsão.`) +
+    cfgLinha("al-orc", cfg.orcamento.on, "Categoria perto/estourando o teto",
+      `Avisar a partir de <input type="number" min="50" max="100" id="al-orc-pct" value="${cfg.orcamento.pct}">% do teto (estouro avisa sempre).`) +
+    cfgLinha("al-padrao", cfg.padrao.on, "Gasto fora do padrão",
+      `Avisar quando uma categoria subir <input type="number" min="10" max="500" id="al-padrao-pct" value="${cfg.padrao.pct}">% e ao menos R$ <input type="number" min="0" step="1" id="al-padrao-piso" value="${Math.round(cfg.padrao.piso_centavos / 100)}"> vs. o mês passado.`);
+}
+async function salvarConfigAlertas() {
+  const num = (id, def) => { const v = parseInt(document.getElementById(id).value); return isNaN(v) ? def : v; };
+  const body = {
+    conta_on: document.getElementById("al-conta-on").checked,
+    conta_dias: num("al-conta-dias", 5),
+    saldo_on: document.getElementById("al-saldo-on").checked,
+    saldo_horizonte: num("al-saldo-horizonte", 60),
+    orcamento_on: document.getElementById("al-orc-on").checked,
+    orcamento_pct: num("al-orc-pct", 80),
+    padrao_on: document.getElementById("al-padrao-on").checked,
+    padrao_pct: num("al-padrao-pct", 50),
+    padrao_piso_centavos: num("al-padrao-piso", 50) * 100,
+  };
+  try {
+    await pedir("/config/alertas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    aviso("Alertas atualizados.", "ok");
+    carregarAlertas(); carregarResumosDash();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+function togglePrefMenu() {
+  const on = document.getElementById("pref-menu").checked;
+  document.body.classList.toggle("menu-oculto", on);
+  try { localStorage.setItem("sb_menu_oculto", on ? "1" : "0"); } catch (e) {}
+}
+
 // ===== M7: Insights / inteligência financeira (por regras) =====
 const INSIGHT_GRUPOS = [
   { tipo: "padrao", rot: "Padrões do seu gasto", ico: "analise" },
@@ -2571,7 +2623,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", insights: "Insights", orcamento: "Orçamento", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", insights: "Insights", orcamento: "Orçamento", categorias: "Categorias", configuracoes: "Configurações", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
@@ -2586,6 +2638,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     if (tela === "comparar") carregarComparar();    // M3: comparação carrega ao abrir
     if (tela === "cartoes") carregarCartoes();       // M5: cartões carregam ao abrir
     if (tela === "insights") carregarInsights();     // M7: insights carregam ao abrir
+    if (tela === "configuracoes") carregarConfig();  // M8: config de alertas + preferências
   });
 });
 

@@ -2473,6 +2473,28 @@ def comparar_meses(mes_a: str, mes_b: str, user_id: str = Depends(exigir_login))
 
 _ORDEM_SEV = {"alta": 0, "media": 1, "baixa": 2}
 
+# Configuração dos alertas (Mudança 8) — cada tipo pode ser ligado/desligado e ter seu limiar.
+_ALERTAS_DEFAULT = {
+    "conta": {"on": True, "dias": 5},
+    "saldo": {"on": True, "horizonte": 60},
+    "orcamento": {"on": True, "pct": 80},
+    "padrao": {"on": True, "pct": 50, "piso_centavos": 5000},
+}
+
+def _config_alertas(con, user_id):
+    """Config dos alertas do usuário (default + o que ele salvou)."""
+    cfg = {k: dict(v) for k, v in _ALERTAS_DEFAULT.items()}
+    linha = con.execute("SELECT valor FROM config WHERE user_id=? AND chave='alertas_config'", (user_id,)).fetchone()
+    if linha and linha[0]:
+        try:
+            salvo = json.loads(linha[0])
+            for k in cfg:
+                if isinstance(salvo.get(k), dict):
+                    cfg[k].update(salvo[k])
+        except Exception:
+            pass
+    return cfg
+
 def _fmt_data_br(iso):
     try:
         return datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m")
@@ -2480,76 +2502,85 @@ def _fmt_data_br(iso):
         return iso
 
 def gerar_alertas(con, user_id):
-    """Roda as regras e devolve a lista de alertas (mais graves primeiro). Só leitura de estado
-    do usuário; NÃO marca nada como lido. Cada alerta: chave, tipo, severidade, titulo, mensagem, tela."""
+    """Roda as regras e devolve a lista de alertas (mais graves primeiro). Respeita a config do
+    usuário (liga/desliga + limiares). Só leitura; NÃO marca nada como lido."""
     alertas = []
+    cfg = _config_alertas(con, user_id)
     hoje = date.today()
     mes_atual = hoje.strftime("%Y-%m")
 
-    # 1) Contas vencendo (≤5 dias) ou atrasadas
-    contas = con.execute(
-        "SELECT id, nome, valor_centavos, vencimento, tipo_conta FROM contas "
-        "WHERE user_id=? AND paga=0 AND COALESCE(arquivada,0)=0", (user_id,)
-    ).fetchall()
-    for cid, nome, valor, venc, tipo_conta in contas:
-        if not venc or not data_valida(venc):
-            continue
-        total = total_conta(con, user_id, cid, tipo_conta or "simples", valor)
-        restante = total - total_pago_conta(con, user_id, cid)
-        if restante <= 0:
-            continue
-        dias = (datetime.strptime(venc, "%Y-%m-%d").date() - hoje).days
-        if dias < 0:
-            alertas.append({"chave": f"conta:{cid}:{venc}", "tipo": "conta", "severidade": "alta",
-                            "titulo": f"{nome} atrasada",
-                            "mensagem": f"Venceu há {-dias} dia(s) · faltam {reais_txt(restante)}", "tela": "contas"})
-        elif dias <= 5:
-            quando = "vence hoje" if dias == 0 else f"vence em {dias} dia(s)"
-            alertas.append({"chave": f"conta:{cid}:{venc}", "tipo": "conta", "severidade": "media",
-                            "titulo": f"{nome} {quando}",
-                            "mensagem": f"{reais_txt(restante)} a pagar até {_fmt_data_br(venc)}", "tela": "contas"})
+    # 1) Contas vencendo (≤ N dias) ou atrasadas
+    if cfg["conta"]["on"]:
+        limite_dias = cfg["conta"]["dias"]
+        contas = con.execute(
+            "SELECT id, nome, valor_centavos, vencimento, tipo_conta FROM contas "
+            "WHERE user_id=? AND paga=0 AND COALESCE(arquivada,0)=0", (user_id,)
+        ).fetchall()
+        for cid, nome, valor, venc, tipo_conta in contas:
+            if not venc or not data_valida(venc):
+                continue
+            total = total_conta(con, user_id, cid, tipo_conta or "simples", valor)
+            restante = total - total_pago_conta(con, user_id, cid)
+            if restante <= 0:
+                continue
+            dias = (datetime.strptime(venc, "%Y-%m-%d").date() - hoje).days
+            if dias < 0:
+                alertas.append({"chave": f"conta:{cid}:{venc}", "tipo": "conta", "severidade": "alta",
+                                "titulo": f"{nome} atrasada",
+                                "mensagem": f"Venceu há {-dias} dia(s) · faltam {reais_txt(restante)}", "tela": "contas"})
+            elif dias <= limite_dias:
+                quando = "vence hoje" if dias == 0 else f"vence em {dias} dia(s)"
+                alertas.append({"chave": f"conta:{cid}:{venc}", "tipo": "conta", "severidade": "media",
+                                "titulo": f"{nome} {quando}",
+                                "mensagem": f"{reais_txt(restante)} a pagar até {_fmt_data_br(venc)}", "tela": "contas"})
 
-    # 2) Saldo indo negativo nos próximos 60 dias (motor da Previsão)
-    try:
-        ate = (hoje + timedelta(days=60)).strftime("%Y-%m-%d")
-        prev = projetar_financas(user_id, ate)
-        neg = prev.get("saldo_negativo")
-        if neg:
-            alertas.append({"chave": f"saldo-neg:{neg['data']}", "tipo": "saldo", "severidade": "alta",
-                            "titulo": "Saldo fica negativo",
-                            "mensagem": f"No ritmo atual, em {_fmt_data_br(neg['data'])} o saldo fica {reais_txt(neg['valor_centavos'])}",
-                            "tela": "previsao"})
-    except Exception:
-        pass  # previsão nunca deve derrubar os alertas
+    # 2) Saldo indo negativo nos próximos N dias (motor da Previsão)
+    if cfg["saldo"]["on"]:
+        try:
+            ate = (hoje + timedelta(days=cfg["saldo"]["horizonte"])).strftime("%Y-%m-%d")
+            prev = projetar_financas(user_id, ate)
+            neg = prev.get("saldo_negativo")
+            if neg:
+                alertas.append({"chave": f"saldo-neg:{neg['data']}", "tipo": "saldo", "severidade": "alta",
+                                "titulo": "Saldo fica negativo",
+                                "mensagem": f"No ritmo atual, em {_fmt_data_br(neg['data'])} o saldo fica {reais_txt(neg['valor_centavos'])}",
+                                "tela": "previsao"})
+        except Exception:
+            pass  # previsão nunca deve derrubar os alertas
 
-    # 3) Categoria estourando/perto do teto (motor do Orçamento) — mês atual
     gasto = gasto_por_categoria(con, user_id, mes_atual)
     cats = [l[0] for l in con.execute("SELECT nome FROM categorias WHERE user_id=?", (user_id,)).fetchall()]
-    for nome in cats:
-        limite = limite_categoria(con, user_id, nome, mes_atual)
-        if not limite:
-            continue
-        g = gasto.get(nome.lower(), 0)
-        if g > limite:
-            alertas.append({"chave": f"orc:{nome}:{mes_atual}:estourou", "tipo": "orcamento", "severidade": "alta",
-                            "titulo": f"{nome} estourou o teto",
-                            "mensagem": f"{reais_txt(g)} de {reais_txt(limite)} ({round(g/limite*100)}%)", "tela": "orcamento"})
-        elif g / limite >= 0.8:
-            alertas.append({"chave": f"orc:{nome}:{mes_atual}:atencao", "tipo": "orcamento", "severidade": "media",
-                            "titulo": f"{nome} perto do teto",
-                            "mensagem": f"{reais_txt(g)} de {reais_txt(limite)} ({round(g/limite*100)}%)", "tela": "orcamento"})
 
-    # 4) Gasto fora do padrão vs mês anterior (+50% e ≥R$50) — motor da Comparação
-    mes_ant = _mes_anterior(mes_atual)
-    gasto_ant = gasto_por_categoria(con, user_id, mes_ant)
-    for nome in cats:
-        a = gasto_ant.get(nome.lower(), 0)
-        b = gasto.get(nome.lower(), 0)
-        if a > 0 and b >= a * 1.5 and (b - a) >= 5000:
-            pct = round((b - a) / a * 100)
-            alertas.append({"chave": f"padrao:{nome}:{mes_atual}", "tipo": "padrao", "severidade": "media",
-                            "titulo": f"{nome} subiu {pct}%",
-                            "mensagem": f"{reais_txt(b)} este mês vs {reais_txt(a)} no mês passado", "tela": "comparar"})
+    # 3) Categoria estourando/perto do teto (motor do Orçamento) — mês atual
+    if cfg["orcamento"]["on"]:
+        razao_atencao = cfg["orcamento"]["pct"] / 100
+        for nome in cats:
+            limite = limite_categoria(con, user_id, nome, mes_atual)
+            if not limite:
+                continue
+            g = gasto.get(nome.lower(), 0)
+            if g > limite:
+                alertas.append({"chave": f"orc:{nome}:{mes_atual}:estourou", "tipo": "orcamento", "severidade": "alta",
+                                "titulo": f"{nome} estourou o teto",
+                                "mensagem": f"{reais_txt(g)} de {reais_txt(limite)} ({round(g/limite*100)}%)", "tela": "orcamento"})
+            elif g / limite >= razao_atencao:
+                alertas.append({"chave": f"orc:{nome}:{mes_atual}:atencao", "tipo": "orcamento", "severidade": "media",
+                                "titulo": f"{nome} perto do teto",
+                                "mensagem": f"{reais_txt(g)} de {reais_txt(limite)} ({round(g/limite*100)}%)", "tela": "orcamento"})
+
+    # 4) Gasto fora do padrão vs mês anterior (+X% e ≥ piso) — motor da Comparação
+    if cfg["padrao"]["on"]:
+        fator = 1 + cfg["padrao"]["pct"] / 100
+        piso = cfg["padrao"]["piso_centavos"]
+        gasto_ant = gasto_por_categoria(con, user_id, _mes_anterior(mes_atual))
+        for nome in cats:
+            a = gasto_ant.get(nome.lower(), 0)
+            b = gasto.get(nome.lower(), 0)
+            if a > 0 and b >= a * fator and (b - a) >= piso:
+                pct = round((b - a) / a * 100)
+                alertas.append({"chave": f"padrao:{nome}:{mes_atual}", "tipo": "padrao", "severidade": "media",
+                                "titulo": f"{nome} subiu {pct}%",
+                                "mensagem": f"{reais_txt(b)} este mês vs {reais_txt(a)} no mês passado", "tela": "comparar"})
 
     alertas.sort(key=lambda x: _ORDEM_SEV.get(x["severidade"], 9))
     return alertas
@@ -2589,6 +2620,48 @@ def marcar_alertas_lidos(user_id: str = Depends(exigir_login)):
     con.commit()
     con.close()
     return {"status": "alertas marcados como lidos"}
+
+class ConfigAlertasIn(BaseModel):
+    conta_on: bool = True
+    conta_dias: int = 5
+    saldo_on: bool = True
+    saldo_horizonte: int = 60
+    orcamento_on: bool = True
+    orcamento_pct: int = 80
+    padrao_on: bool = True
+    padrao_pct: int = 50
+    padrao_piso_centavos: int = 5000
+
+@app.get("/config/alertas")
+def obter_config_alertas(user_id: str = Depends(exigir_login)):
+    con = conectar()
+    cfg = _config_alertas(con, user_id)
+    con.close()
+    return cfg
+
+@app.post("/config/alertas")
+def salvar_config_alertas(item: ConfigAlertasIn, user_id: str = Depends(exigir_login)):
+    if not (1 <= item.conta_dias <= 60):
+        raise HTTPException(status_code=400, detail="Dias pra vencer: use 1 a 60.")
+    if not (7 <= item.saldo_horizonte <= 365):
+        raise HTTPException(status_code=400, detail="Horizonte da previsão: use 7 a 365 dias.")
+    if not (50 <= item.orcamento_pct <= 100):
+        raise HTTPException(status_code=400, detail="Aviso de orçamento: use 50 a 100%.")
+    if not (10 <= item.padrao_pct <= 500):
+        raise HTTPException(status_code=400, detail="Gasto fora do padrão: use 10 a 500%.")
+    if item.padrao_piso_centavos < 0:
+        raise HTTPException(status_code=400, detail="Piso não pode ser negativo.")
+    cfg = {
+        "conta": {"on": item.conta_on, "dias": item.conta_dias},
+        "saldo": {"on": item.saldo_on, "horizonte": item.saldo_horizonte},
+        "orcamento": {"on": item.orcamento_on, "pct": item.orcamento_pct},
+        "padrao": {"on": item.padrao_on, "pct": item.padrao_pct, "piso_centavos": item.padrao_piso_centavos},
+    }
+    con = conectar()
+    _upsert_config(con, user_id, "alertas_config", json.dumps(cfg))
+    con.commit()
+    con.close()
+    return {"status": "config salva"}
 
 
 # ========================================================
