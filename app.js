@@ -53,7 +53,8 @@ const ICONES = {
   orcamento: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   salvar: '<polyline points="20 6 9 17 4 12"/>',
   fechar: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
-  comparar: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'
+  comparar: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  sino: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -218,6 +219,7 @@ async function carregarTudo() {
   // carregarRecorrentes roda dentro de carregarContas (precisa de CONTAS já carregado p/ o vínculo de fatura)
   await Promise.all([carregarSaldoLivre(), carregarCaixinhas(), carregarContas(), carregarHistorico(), carregarAnalise(), carregarCategorias(), carregarStreak(), carregarRegras(), carregarEntradasRecorrentes()]);
   atualizarPainelBancos();
+  carregarAlertas();    // M4: alertas (sino + card na Visão geral)
   verificarWrapped();   // E6: mostra a retrospectiva do mês passado (1x por sessão)
   // esconde o leitor de conta por foto se o servidor não tiver OCR (ex.: Render sem Tesseract)
   fetch("/ocr-status").then(r => r.json()).then(s => {
@@ -1405,6 +1407,81 @@ function desenharGraficoComparar(d, la, lb) {
   if (graficoComparar) { graficoComparar.data = dados; graficoComparar.options = opts; graficoComparar.update(); }
   else graficoComparar = new Chart(canvas, { type: "bar", data: dados, options: opts });
 }
+
+// ===== M4: Alertas financeiros =====
+let ALERTAS = [];
+async function carregarAlertas() {
+  let d;
+  try { d = await pedir("/alertas"); } catch (e) { return; }
+  ALERTAS = d.alertas || [];
+  // badge do sino (não-lidos)
+  const badge = document.getElementById("sino-badge");
+  if (badge) {
+    if (d.nao_lidos > 0) { badge.textContent = d.nao_lidos > 9 ? "9+" : d.nao_lidos; badge.style.display = ""; }
+    else badge.style.display = "none";
+  }
+  renderSinoLista();
+  renderAlertasDash();
+}
+function alertaHTML(a, classe) {
+  return `<button class="${classe}" onclick="abrirAlerta('${escAttr(a.tela)}')">
+    <span class="pip ${a.severidade}"></span>
+    <span style="flex:1;min-width:0">
+      <span class="a-tit">${a.titulo}${a.novo ? '<span class="a-novo" title="Novo"></span>' : ""}</span>
+      <span class="a-msg">${a.mensagem}</span>
+    </span>
+  </button>`;
+}
+function renderSinoLista() {
+  const lista = document.getElementById("sino-lista");
+  if (!lista) return;
+  if (!ALERTAS.length) { lista.innerHTML = '<div class="sino-vazio">Tudo em ordem 🎉<br>Nenhum alerta agora.</div>'; return; }
+  lista.innerHTML = ALERTAS.map(a => alertaHTML(a, "alerta")).join("");
+}
+function renderAlertasDash() {
+  const el = document.getElementById("alertas-card");
+  if (!el) return;
+  if (!ALERTAS.length) { el.innerHTML = ""; return; }  // sem alertas, sem card (não polui a tela)
+  const temAlta = ALERTAS.some(a => a.severidade === "alta");
+  const topo = ALERTAS.slice(0, 3);
+  const resto = ALERTAS.length - topo.length;
+  el.innerHTML = `<div class="alertas-dash ${temAlta ? "tem-alta" : ""}">
+    <h2>${ico('sino', 17)} Alertas <span class="cont-badge">${ALERTAS.length}</span></h2>
+    ${topo.map(a => `<div class="ad-item" onclick="abrirAlerta('${escAttr(a.tela)}')">
+      <span class="pip ${a.severidade}"></span>
+      <div style="flex:1;min-width:0"><div class="a-tit">${a.titulo}</div><div class="a-msg">${a.mensagem}</div></div>
+    </div>`).join("")}
+    ${resto > 0 ? `<button class="ad-mais" onclick="toggleAlertas(event, true)">+ ${resto} outro(s) alerta(s)</button>` : ""}
+  </div>`;
+}
+async function toggleAlertas(ev, forcarAbrir) {
+  if (ev) ev.stopPropagation();
+  const painel = document.getElementById("sino-painel");
+  if (!painel) return;
+  const abrir = forcarAbrir || painel.style.display === "none";
+  painel.style.display = abrir ? "block" : "none";
+  if (abrir) {
+    // marca como lidos: zera o badge e atualiza o estado "novo"
+    try { await pedir("/alertas/marcar-lidos", { method: "POST" }); } catch (e) {}
+    const badge = document.getElementById("sino-badge");
+    if (badge) badge.style.display = "none";
+    ALERTAS.forEach(a => a.novo = false);
+    renderSinoLista();
+  }
+}
+function abrirAlerta(tela) {
+  const painel = document.getElementById("sino-painel");
+  if (painel) painel.style.display = "none";
+  irPara(tela);
+}
+// fecha o painel do sino ao clicar fora
+document.addEventListener("click", (e) => {
+  const wrap = document.querySelector(".sino-wrap");
+  const painel = document.getElementById("sino-painel");
+  if (wrap && painel && painel.style.display !== "none" && !wrap.contains(e.target)) {
+    painel.style.display = "none";
+  }
+});
 
 // E4: regras de salário — troca o rótulo do campo valor conforme o modo
 function ajustarModoRegra() {

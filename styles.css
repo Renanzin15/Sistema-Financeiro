@@ -497,3 +497,43 @@
   .cmp-tab .dpct.sobe { color: var(--verde); }
   .cmp-tab .dpct.desce { color: var(--vermelho); }
   .cmp-tab .dpct.neutro { color: var(--faint); }
+
+  /* ===== Alertas financeiros (Mudança 4) ===== */
+  .sino-wrap { position: relative; }
+  .btn-menu.sino { position: relative; }
+  .sino-badge {
+    position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; padding: 0 5px;
+    background: var(--vermelho); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px;
+    text-align: center; border-radius: 9px; box-shadow: 0 0 0 2px var(--fundo);
+  }
+  .sino-painel {
+    position: absolute; top: calc(100% + 10px); right: 0; z-index: 400; width: 340px; max-width: 86vw;
+    background: var(--painel); border: 1px solid var(--borda-2); border-radius: 16px;
+    box-shadow: var(--sh-lift); overflow: hidden; max-height: 70vh; overflow-y: auto;
+  }
+  .sino-cab { padding: 14px 16px; font-size: 13px; font-weight: 700; color: var(--texto); border-bottom: 1px solid var(--borda); position: sticky; top: 0; background: var(--painel); }
+
+  .alerta {
+    display: flex; gap: 11px; align-items: flex-start; padding: 12px 16px; cursor: pointer;
+    border-bottom: 1px solid var(--borda); transition: background .14s var(--ease); text-align: left;
+    width: 100%; background: none; border-left: none; border-right: none; border-top: none; font-family: inherit;
+  }
+  .alerta:last-child { border-bottom: none; }
+  .alerta:hover { background: var(--painel2); }
+  .alerta .pip { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .alerta .pip.alta { background: var(--vermelho); }
+  .alerta .pip.media { background: var(--amarelo); }
+  .alerta .pip.baixa { background: var(--texto2); }
+  .alerta .a-tit { font-size: 13.5px; font-weight: 650; color: var(--texto); }
+  .alerta .a-msg { font-size: 12px; color: var(--texto2); margin-top: 2px; line-height: 1.35; }
+  .alerta .a-novo { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--roxo-claro); margin-left: 6px; vertical-align: middle; }
+  .sino-vazio { padding: 28px 16px; text-align: center; color: var(--faint); font-size: 13px; }
+
+  /* card de alertas na Visão geral */
+  .alertas-dash { background: var(--painel); border: 1px solid var(--borda); border-radius: var(--r-card); padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--sh-md); }
+  .alertas-dash.tem-alta { border-color: rgba(251,113,133,.35); }
+  .alertas-dash h2 { font-size: 15px; font-weight: 650; margin-bottom: 12px; display: flex; align-items: center; gap: 9px; }
+  .alertas-dash .cont-badge { font-size: 12px; font-weight: 700; color: var(--vermelho); background: var(--vermelho-fundo); border-radius: var(--r-pill); padding: 2px 9px; }
+  .ad-item { display: flex; gap: 11px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--borda); cursor: pointer; }
+  .ad-item:hover .a-tit { color: var(--roxo-claro); }
+  .ad-mais { margin-top: 10px; font-size: 12.5px; color: var(--roxo-claro); font-weight: 600; cursor: pointer; background: none; border: none; font-family: inherit; padding: 0; }

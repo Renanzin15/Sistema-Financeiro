@@ -10,6 +10,7 @@ import io
 import os
 import base64
 import calendar
+import json
 import bcrypt
 from jose import jwt, JWTError
 
@@ -2387,6 +2388,133 @@ def comparar_meses(mes_a: str, mes_b: str, user_id: str = Depends(exigir_login))
         categorias.append({"categoria": nomes.get(k, k), "a_centavos": a, "b_centavos": b})
     categorias.sort(key=lambda c: c["b_centavos"], reverse=True)
     return {"mes_a": mes_a, "mes_b": mes_b, "resumo_a": resumo_a, "resumo_b": resumo_b, "categorias": categorias}
+
+
+# ========================================================
+# ROTAS DE ALERTAS FINANCEIROS (Mudança 4)
+# regras (sem "IA"): junta pontos de atenção dos motores que já existem.
+# Estrutura pronta pra futuras notificações: cada alerta tem uma 'chave' estável
+# e há um estado de "vistos" (config) pro contador de não-lidos.
+# ========================================================
+
+_ORDEM_SEV = {"alta": 0, "media": 1, "baixa": 2}
+
+def _fmt_data_br(iso):
+    try:
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m")
+    except Exception:
+        return iso
+
+def gerar_alertas(con, user_id):
+    """Roda as regras e devolve a lista de alertas (mais graves primeiro). Só leitura de estado
+    do usuário; NÃO marca nada como lido. Cada alerta: chave, tipo, severidade, titulo, mensagem, tela."""
+    alertas = []
+    hoje = date.today()
+    mes_atual = hoje.strftime("%Y-%m")
+
+    # 1) Contas vencendo (≤5 dias) ou atrasadas
+    contas = con.execute(
+        "SELECT id, nome, valor_centavos, vencimento, tipo_conta FROM contas "
+        "WHERE user_id=? AND paga=0 AND COALESCE(arquivada,0)=0", (user_id,)
+    ).fetchall()
+    for cid, nome, valor, venc, tipo_conta in contas:
+        if not venc or not data_valida(venc):
+            continue
+        total = total_conta(con, user_id, cid, tipo_conta or "simples", valor)
+        restante = total - total_pago_conta(con, user_id, cid)
+        if restante <= 0:
+            continue
+        dias = (datetime.strptime(venc, "%Y-%m-%d").date() - hoje).days
+        if dias < 0:
+            alertas.append({"chave": f"conta:{cid}:{venc}", "tipo": "conta", "severidade": "alta",
+                            "titulo": f"{nome} atrasada",
+                            "mensagem": f"Venceu há {-dias} dia(s) · faltam {reais_txt(restante)}", "tela": "contas"})
+        elif dias <= 5:
+            quando = "vence hoje" if dias == 0 else f"vence em {dias} dia(s)"
+            alertas.append({"chave": f"conta:{cid}:{venc}", "tipo": "conta", "severidade": "media",
+                            "titulo": f"{nome} {quando}",
+                            "mensagem": f"{reais_txt(restante)} a pagar até {_fmt_data_br(venc)}", "tela": "contas"})
+
+    # 2) Saldo indo negativo nos próximos 60 dias (motor da Previsão)
+    try:
+        ate = (hoje + timedelta(days=60)).strftime("%Y-%m-%d")
+        prev = projetar_financas(user_id, ate)
+        neg = prev.get("saldo_negativo")
+        if neg:
+            alertas.append({"chave": f"saldo-neg:{neg['data']}", "tipo": "saldo", "severidade": "alta",
+                            "titulo": "Saldo fica negativo",
+                            "mensagem": f"No ritmo atual, em {_fmt_data_br(neg['data'])} o saldo fica {reais_txt(neg['valor_centavos'])}",
+                            "tela": "previsao"})
+    except Exception:
+        pass  # previsão nunca deve derrubar os alertas
+
+    # 3) Categoria estourando/perto do teto (motor do Orçamento) — mês atual
+    gasto = gasto_por_categoria(con, user_id, mes_atual)
+    cats = [l[0] for l in con.execute("SELECT nome FROM categorias WHERE user_id=?", (user_id,)).fetchall()]
+    for nome in cats:
+        limite = limite_categoria(con, user_id, nome, mes_atual)
+        if not limite:
+            continue
+        g = gasto.get(nome.lower(), 0)
+        if g > limite:
+            alertas.append({"chave": f"orc:{nome}:{mes_atual}:estourou", "tipo": "orcamento", "severidade": "alta",
+                            "titulo": f"{nome} estourou o teto",
+                            "mensagem": f"{reais_txt(g)} de {reais_txt(limite)} ({round(g/limite*100)}%)", "tela": "orcamento"})
+        elif g / limite >= 0.8:
+            alertas.append({"chave": f"orc:{nome}:{mes_atual}:atencao", "tipo": "orcamento", "severidade": "media",
+                            "titulo": f"{nome} perto do teto",
+                            "mensagem": f"{reais_txt(g)} de {reais_txt(limite)} ({round(g/limite*100)}%)", "tela": "orcamento"})
+
+    # 4) Gasto fora do padrão vs mês anterior (+50% e ≥R$50) — motor da Comparação
+    mes_ant = _mes_anterior(mes_atual)
+    gasto_ant = gasto_por_categoria(con, user_id, mes_ant)
+    for nome in cats:
+        a = gasto_ant.get(nome.lower(), 0)
+        b = gasto.get(nome.lower(), 0)
+        if a > 0 and b >= a * 1.5 and (b - a) >= 5000:
+            pct = round((b - a) / a * 100)
+            alertas.append({"chave": f"padrao:{nome}:{mes_atual}", "tipo": "padrao", "severidade": "media",
+                            "titulo": f"{nome} subiu {pct}%",
+                            "mensagem": f"{reais_txt(b)} este mês vs {reais_txt(a)} no mês passado", "tela": "comparar"})
+
+    alertas.sort(key=lambda x: _ORDEM_SEV.get(x["severidade"], 9))
+    return alertas
+
+def _mes_anterior(mes):
+    a, m = int(mes[:4]), int(mes[5:7])
+    m -= 1
+    if m < 1:
+        m = 12; a -= 1
+    return f"{a:04d}-{m:02d}"
+
+def reais_txt(centavos):
+    return "R$ " + f"{centavos/100:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+@app.get("/alertas")
+def listar_alertas(user_id: str = Depends(exigir_login)):
+    con = conectar()
+    alertas = gerar_alertas(con, user_id)
+    linha = con.execute("SELECT valor FROM config WHERE user_id=? AND chave='alertas_vistos'", (user_id,)).fetchone()
+    con.close()
+    try:
+        vistos = set(json.loads(linha[0])) if linha and linha[0] else set()
+    except Exception:
+        vistos = set()
+    nao_lidos = sum(1 for a in alertas if a["chave"] not in vistos)
+    for a in alertas:
+        a["novo"] = a["chave"] not in vistos
+    return {"alertas": alertas, "total": len(alertas), "nao_lidos": nao_lidos}
+
+@app.post("/alertas/marcar-lidos")
+def marcar_alertas_lidos(user_id: str = Depends(exigir_login)):
+    """Marca todos os alertas ativos como vistos (zera o contador do sino). Guarda só as chaves
+    ativas — se um alerta some e volta depois, ele conta como novo de novo."""
+    con = conectar()
+    alertas = gerar_alertas(con, user_id)
+    _upsert_config(con, user_id, "alertas_vistos", json.dumps([a["chave"] for a in alertas]))
+    con.commit()
+    con.close()
+    return {"status": "alertas marcados como lidos"}
 
 
 # ========================================================

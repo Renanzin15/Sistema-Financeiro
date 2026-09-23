@@ -49,6 +49,16 @@
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px">
+      <div class="sino-wrap">
+        <button class="btn-menu sino" id="btn-sino" onclick="toggleAlertas(event)" title="Alertas" aria-label="Alertas">
+          <span class="ico" data-ico="sino" data-ico-size="19"></span>
+          <span class="sino-badge" id="sino-badge" style="display:none">0</span>
+        </button>
+        <div class="sino-painel" id="sino-painel" style="display:none">
+          <div class="sino-cab">Alertas</div>
+          <div id="sino-lista"></div>
+        </div>
+      </div>
       <label style="font-size:13px;color:var(--texto2)">Banco:</label>
       <select id="seletor-banco" onchange="trocarBanco()"
         style="font-family:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--borda);border-radius:9px;background:var(--painel);color:var(--texto);min-width:150px"></select>
@@ -86,6 +96,7 @@
 
   <!-- DASHBOARD -->
   <section class="tela ativa" id="dashboard">
+    <div id="alertas-card"></div>
     <div id="streak-dash"></div>
     <div class="paineis">
       <div>

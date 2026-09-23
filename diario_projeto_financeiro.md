@@ -1925,3 +1925,30 @@ categoria, união/ordenação de categorias, isolamento A×B, validação. **Nav
 R$6.000 ▲+20% (verde), Saiu R$920 ▲+5% (vermelho), Sobrou R$5.080 ▲+23% (verde); tabela Alimentação
 ▲+70% (vermelho), Transporte/Lazer ▼−50% (verde); gráfico agrupado OK; zero erros de console.
 Comparação por categoria só é fiel de set/2026 em diante (quando o gasto passou a ter categoria).
+
+## Etapa 33 — Alertas financeiros (Mudança 4 do plano de evolução) (23/09/2026)
+
+Quarta mudança. Objetivo: juntar num lugar só os pontos de atenção, usando os motores que já existem
+(sem "IA", tudo por regras). Decisões do Renan: os **4 gatilhos**; exibir em **sino no topo + card na
+Visão geral**; **só no app** por enquanto (mas com estrutura pronta pra notificação futura); "gasto fora
+do padrão" = **+50% e ≥R$50**.
+
+**Backend (`main.py`):** `import json`. `gerar_alertas(con,user)` junta: (1) contas não pagas vencendo
+≤5 dias (média) ou atrasadas (alta), pelo restante; (2) saldo negativo nos próximos 60 dias via
+`projetar_financas` (alta); (3) categoria do mês estourando (alta) / ≥80% (média) via `gasto_por_categoria`
++ `limite_categoria`; (4) categoria +50% e ≥R$50 vs mês anterior (média). Cada alerta tem `chave` estável,
+`tipo`, `severidade`, `titulo`, `mensagem`, `tela`; ordenados por gravidade. Rotas `GET /alertas` (lista +
+`nao_lidos`, marca `novo` por alerta) e `POST /alertas/marcar-lidos` (guarda as chaves ativas em
+`config['alertas_vistos']` — base pra, no futuro, só notificar o que é novo). `reais_txt`, `_mes_anterior`,
+`_fmt_data_br` auxiliares. Sem mexer no banco (usa a tabela `config`).
+
+**Front (`index.html`+`app.js`+`styles.css`):** sino no cabeçalho (ícone `sino`) com badge de não-lidos e
+painel dropdown (pip colorido por gravidade; fecha ao clicar fora; abrir chama marcar-lidos e zera o
+badge). Card "Alertas" na Visão geral com os 3 principais + "+N outros" (some sem alertas). Clicar num
+alerta leva pra tela relacionada (contas/previsao/orcamento/comparar). `carregarAlertas` roda no
+`carregarTudo`.
+
+**Testado:** 12/12 no backend isolado — 4 gatilhos, conta a 40 dias não alerta, ordenação, contador de
+não-lidos, marcar-lidos zera, alerta novo reconta, isolamento A×B. **Navegador**: badge=6, card na Visão
+geral, painel com 6 alertas ordenados e mensagens claras; abrir zera badge; clicar navega e fecha; ok no
+mobile; zero erros de console. Alertas de categoria/padrão só valem de set/2026 em diante.
