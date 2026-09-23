@@ -2010,3 +2010,32 @@ mais = vermelho). As 3 chamadas rodam em paralelo (`Promise.all`), cada uma com 
 05/10; Orçamento R$930/R$1.200 78% barra verde; Saldo projetado R$3.370,10; Gasto vs mês passado R$930
 ▲+55% vermelho); clique navega pra tela certa; empilha no celular; zero erros de console. Estados vazios
 graciosos pra quem não usa a área ("Cadastre um cartão", "Sem teto definido").
+
+## Etapa 36 — Insights / inteligência financeira (Mudança 7 do plano — a última) (23/09/2026)
+
+Sétima e última mudança do plano. "Inteligência" por **regras** (sem IA): a conta é feita no código
+(exata) e vira dica. Decisões do Renan: os **4 tipos** (padrões, economia, assinaturas esquecidas, metas)
+e **tela nova "Insights"**. Também alinhamos que IA de verdade fica pra uma **Mudança 8** (assistente/
+categorização/insights escritos por IA) — a explicação de custos/caminhos (Claude pago, free tier a custo
+zero tipo Gemini/Groq, ou modelo local Ollama) ficou registrada no chat.
+
+**Backend (`main.py`):** `gerar_insights(user_id)` + `GET /insights`. PADRÃO: categoria que mais cresceu
+vs mês passado (dif ≥ R$30), maior despesa do mês, dia da semana que mais gasta (últimos 90 dias, com
+preposição certa "no sábado"/"na segunda"). ECONOMIA: categoria que subiu ≥30% e ≥R$50 (quanto
+economizaria voltando ao patamar anterior), categoria que estourou o teto. ASSINATURAS: nº de
+recorrentes+licenças e total normalizado por mês (÷ período) e por ano — sugere revisar. METAS:
+`_sobra_media` (média do sobrou nos últimos 3 meses com movimento); por caixinha com meta, meses pra bater
+no ritmo da sobra (ou "meta batida"). Helpers `_sobra_media`, `_nome_categoria_real`, `_DIAS_SEMANA`.
+Reaproveita totais_mes/gasto_por_categoria/limite_categoria/saldo_da_caixinha. Sem DB novo.
+
+**Front (`index.html`+`app.js`+`styles.css`):** menu "Insights" (ícone `insight` = lâmpada) + tela que
+agrupa os insights em 4 seções (`INSIGHT_GRUPOS`), cada dica num card clicável que leva pra tela
+relacionada (comparar/orcamento/historico/licencas/caixinhas). Estado vazio orienta o que fazer.
+
+**Testado:** 10/10 no backend isolado — os 4 tipos disparando, soma de assinaturas (R$100/mês), sobra
+média, prazo de meta, isolamento A×B. **Navegador**: 4 grupos com números corretos, clique navega, zero
+erros de console.
+
+### 🎉 Plano de evolução (7 mudanças) COMPLETO
+M1 Previsão · M2 Orçamento · M3 Comparar · M4 Alertas · M5 Cartões · M6 Dashboard · M7 Insights.
+Próximo passo opcional: Mudança 8 = IA de verdade (a escopar).

@@ -55,7 +55,8 @@ const ICONES = {
   fechar: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   comparar: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   sino: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
-  cartaocred: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>'
+  cartaocred: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  insight: '<line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -1658,6 +1659,34 @@ async function carregarResumosDash() {
   el.innerHTML = htmlFatura + htmlOrc + htmlPrev + htmlCmp;
 }
 
+// ===== M7: Insights / inteligência financeira (por regras) =====
+const INSIGHT_GRUPOS = [
+  { tipo: "padrao", rot: "Padrões do seu gasto", ico: "analise" },
+  { tipo: "economia", rot: "Onde dá pra economizar", ico: "saldo" },
+  { tipo: "assinaturas", rot: "Assinaturas & recorrentes", ico: "licenca" },
+  { tipo: "metas", rot: "Metas", ico: "caixinha" },
+];
+async function carregarInsights() {
+  const el = document.getElementById("insights-lista");
+  if (!el) return;
+  let ins;
+  try { ins = (await pedir("/insights")).insights || []; } catch (e) { el.innerHTML = '<div class="vazio">Não deu pra carregar os insights agora.</div>'; return; }
+  if (!ins.length) {
+    el.innerHTML = '<div class="vazio">Ainda não há insights. Registre gastos com categoria, defina tetos no Orçamento e metas nas Caixinhas — as dicas aparecem sozinhas.</div>';
+    return;
+  }
+  el.innerHTML = INSIGHT_GRUPOS.map(g => {
+    const doGrupo = ins.filter(i => i.tipo === g.tipo);
+    if (!doGrupo.length) return "";
+    const cards = doGrupo.map(i => `<div class="insight-card" onclick="irPara('${escAttr(i.tela)}')" role="button" tabindex="0"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();irPara('${escAttr(i.tela)}')}">
+      <span class="ic">${ico(g.ico, 15)}</span>
+      <div style="flex:1;min-width:0"><div class="tit">${i.titulo}</div><div class="msg">${i.mensagem}</div></div>
+    </div>`).join("");
+    return `<div class="insight-grupo"><div class="insight-grupo-tit"><span class="gi">${ico(g.ico, 13)}</span>${g.rot}</div>${cards}</div>`;
+  }).join("");
+}
+
 // E4: regras de salário — troca o rótulo do campo valor conforme o modo
 function ajustarModoRegra() {
   const modo = document.getElementById("rg-modo").value;
@@ -2542,7 +2571,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", orcamento: "Orçamento", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", insights: "Insights", orcamento: "Orçamento", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
@@ -2556,6 +2585,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     if (tela === "orcamento") carregarOrcamento();  // M2: orçamento carrega ao abrir
     if (tela === "comparar") carregarComparar();    // M3: comparação carrega ao abrir
     if (tela === "cartoes") carregarCartoes();       // M5: cartões carregam ao abrir
+    if (tela === "insights") carregarInsights();     // M7: insights carregam ao abrir
   });
 });
 

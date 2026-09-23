@@ -2798,6 +2798,136 @@ def comprar_no_cartao(cartao_id: int, item: NovaCompra, user_id: str = Depends(e
 
 
 # ========================================================
+# ROTA DE INSIGHTS / INTELIGÊNCIA FINANCEIRA (Mudança 7)
+# Conclusões por REGRAS (sem IA): padrões, economia, assinaturas esquecidas e metas.
+# A conta é toda feita aqui no código (exata); nada de "achismo".
+# ========================================================
+
+_DIAS_SEMANA = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+
+def _sobra_media(con, user_id, n=3):
+    """Média do que sobrou (entrou - saiu) nos últimos n meses com movimento."""
+    hoje = date.today()
+    y, m = hoje.year, hoje.month
+    valores = []
+    for _ in range(n):
+        comp = f"{y:04d}-{m:02d}"
+        t = totais_mes(con, user_id, comp)
+        if t["entrou_centavos"] or t["saiu_centavos"]:
+            valores.append(t["sobrou_centavos"])
+        m -= 1
+        if m < 1:
+            m = 12; y -= 1
+    return sum(valores) // len(valores) if valores else 0
+
+def gerar_insights(user_id):
+    con = conectar()
+    hoje = date.today()
+    mes_atual = hoje.strftime("%Y-%m")
+    mes_ant = _mes_anterior(mes_atual)
+    gasto = gasto_por_categoria(con, user_id, mes_atual)
+    gasto_ant = gasto_por_categoria(con, user_id, mes_ant)
+    insights = []
+
+    # ---------- PADRÃO ----------
+    # categoria que mais cresceu (em reais) vs mês passado
+    cresceu = None
+    for cat, b in gasto.items():
+        a = gasto_ant.get(cat, 0)
+        if b > a and (cresceu is None or (b - a) > cresceu[1]):
+            cresceu = (cat, b - a, a, b)
+    if cresceu and cresceu[1] >= 3000:
+        cat, dif, a, b = cresceu
+        pct = round(dif / a * 100) if a > 0 else 100
+        nome = _nome_categoria_real(con, user_id, cat)
+        insights.append({"tipo": "padrao", "titulo": f"{nome} foi o que mais cresceu",
+                         "mensagem": f"Subiu {reais_txt(dif)} ({'+' + str(pct)}%) vs mês passado — de {reais_txt(a)} para {reais_txt(b)}.", "tela": "comparar"})
+    # maior despesa do mês
+    if gasto:
+        maior = max(gasto.items(), key=lambda kv: kv[1])
+        if maior[1] > 0:
+            insights.append({"tipo": "padrao", "titulo": "Sua maior despesa do mês",
+                             "mensagem": f"{_nome_categoria_real(con, user_id, maior[0])} lidera com {reais_txt(maior[1])} este mês.", "tela": "orcamento"})
+    # dia da semana que mais gasta (últimos 90 dias de gasto livre)
+    limite_data = (hoje - timedelta(days=90)).strftime("%Y-%m-%d")
+    por_dia = [0] * 7
+    for data_l, val in con.execute(
+        "SELECT data, valor_centavos FROM lancamentos WHERE user_id=? AND tipo='saida_livre' "
+        "AND data IS NOT NULL AND data>=?", (user_id, limite_data)
+    ).fetchall():
+        try:
+            por_dia[datetime.strptime(data_l, "%Y-%m-%d").weekday()] += val
+        except Exception:
+            pass
+    if sum(por_dia) > 0:
+        wd = max(range(7), key=lambda i: por_dia[i])
+        if por_dia[wd] > 0:
+            prep = "no" if wd >= 5 else "na"   # no sábado/domingo, na segunda...sexta
+            insights.append({"tipo": "padrao", "titulo": f"Você gasta mais {prep} {_DIAS_SEMANA[wd]}",
+                             "mensagem": f"Nos últimos 90 dias, {_DIAS_SEMANA[wd]} concentra {reais_txt(por_dia[wd])} do seu gasto livre.", "tela": "historico"})
+
+    # ---------- ECONOMIA ----------
+    # categorias que subiram muito -> quanto economizaria voltando ao mês passado
+    for cat, b in sorted(gasto.items(), key=lambda kv: kv[1] - gasto_ant.get(kv[0], 0), reverse=True):
+        a = gasto_ant.get(cat, 0)
+        if a > 0 and b >= a * 1.3 and (b - a) >= 5000:
+            nome = _nome_categoria_real(con, user_id, cat)
+            insights.append({"tipo": "economia", "titulo": f"Dá pra economizar em {nome}",
+                             "mensagem": f"Voltando ao patamar do mês passado, você economizaria {reais_txt(b - a)} este mês.", "tela": "comparar"})
+            break  # só a mais relevante
+    # categoria que estourou o teto
+    cats = [l[0] for l in con.execute("SELECT nome FROM categorias WHERE user_id=?", (user_id,)).fetchall()]
+    for nome in cats:
+        limite = limite_categoria(con, user_id, nome, mes_atual)
+        if limite and gasto.get(nome.lower(), 0) > limite:
+            estouro = gasto[nome.lower()] - limite
+            insights.append({"tipo": "economia", "titulo": f"{nome} passou do orçamento",
+                             "mensagem": f"Já são {reais_txt(estouro)} acima do teto de {reais_txt(limite)}.", "tela": "orcamento"})
+            break
+
+    # ---------- ASSINATURAS / GASTOS ESQUECIDOS ----------
+    recs = con.execute("SELECT nome, valor_centavos FROM recorrentes WHERE user_id=?", (user_id,)).fetchall()
+    lics = con.execute("SELECT nome, valor_centavos, periodicidade FROM licencas WHERE user_id=?", (user_id,)).fetchall()
+    total_mes = sum(r[1] for r in recs)
+    for _n, v, per in lics:
+        total_mes += v // _MESES_PERIODO.get(per, 1)   # normaliza pro mês
+    qtd = len(recs) + len(lics)
+    if qtd > 0 and total_mes > 0:
+        insights.append({"tipo": "assinaturas", "titulo": f"Você tem {qtd} assinatura(s)/licença(s)",
+                         "mensagem": f"Juntas pesam ~{reais_txt(total_mes)}/mês ({reais_txt(total_mes * 12)}/ano). Vale revisar se usa todas.", "tela": "licencas"})
+
+    # ---------- METAS ----------
+    sobra = _sobra_media(con, user_id)
+    if sobra > 0:
+        insights.append({"tipo": "metas", "titulo": "Sobra pra guardar",
+                         "mensagem": f"Nos últimos meses você sobra ~{reais_txt(sobra)}/mês. Que tal reservar parte numa caixinha?", "tela": "caixinhas"})
+    # metas de caixinha: em quanto tempo bate no ritmo da sobra
+    for cid, nome, meta in con.execute(
+        "SELECT id, nome, meta_centavos FROM caixinhas WHERE user_id=? AND meta_centavos>0", (user_id,)
+    ).fetchall():
+        saldo = saldo_da_caixinha(con, user_id, cid)
+        falta = meta - saldo
+        if falta <= 0:
+            insights.append({"tipo": "metas", "titulo": f"Meta '{nome}' batida! 🎉",
+                             "mensagem": f"Você já juntou {reais_txt(saldo)} — a meta era {reais_txt(meta)}.", "tela": "caixinhas"})
+        elif sobra > 0:
+            meses = (falta + sobra - 1) // sobra
+            insights.append({"tipo": "metas", "titulo": f"Meta '{nome}' ao seu alcance",
+                             "mensagem": f"Faltam {reais_txt(falta)}. Guardando ~{reais_txt(sobra)}/mês, você bate em ~{meses} mês(es).", "tela": "caixinhas"})
+
+    con.close()
+    return insights
+
+def _nome_categoria_real(con, user_id, cat_lower):
+    r = con.execute("SELECT nome FROM categorias WHERE user_id=? AND lower(nome)=lower(?)", (user_id, cat_lower)).fetchone()
+    return r[0] if r else cat_lower
+
+@app.get("/insights")
+def listar_insights(user_id: str = Depends(exigir_login)):
+    return {"insights": gerar_insights(user_id)}
+
+
+# ========================================================
 # ROTAS DE REGRAS DE SALÁRIO (E4)
 # ========================================================
 
