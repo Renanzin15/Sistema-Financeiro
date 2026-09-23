@@ -51,7 +51,8 @@ const ICONES = {
   licenca: '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
   previsao: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
   orcamento: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
-  salvar: '<polyline points="20 6 9 17 4 12"/>'
+  salvar: '<polyline points="20 6 9 17 4 12"/>',
+  fechar: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -1200,6 +1201,8 @@ async function carregarOrcamento() {
   } catch (e) { aviso(e.message, "erro"); return; }
   renderOrcamento(d);
 }
+const ORC_COR = { ok: "linear-gradient(90deg,var(--verde),#2fb985)", atencao: "linear-gradient(90deg,#f59e0b,var(--amarelo))", estourou: "linear-gradient(90deg,#e11d48,var(--vermelho))" };
+const ORC_PILL = { ok: "No limite", atencao: "Atenção", estourou: "Estourou" };
 function renderOrcamento(d) {
   const resumo = document.getElementById("orc-resumo");
   const lista = document.getElementById("orc-lista");
@@ -1208,48 +1211,92 @@ function renderOrcamento(d) {
     lista.innerHTML = '<div class="vazio">Você ainda não tem categorias. Crie categorias na aba <b>Categorias</b> e defina um teto aqui.</div>';
     return;
   }
+  // ----- resumo (hero) -----
   const comTeto = d.itens.filter(i => i.limite_centavos != null);
   if (comTeto.length) {
     const restante = d.total_limite_centavos - d.total_gasto_centavos;
-    const pctTotal = d.total_limite_centavos ? Math.round(d.total_gasto_centavos / d.total_limite_centavos * 100) : 0;
+    const pctTotal = d.total_limite_centavos ? Math.min(Math.round(d.total_gasto_centavos / d.total_limite_centavos * 100), 100) : 0;
+    const pctReal = d.total_limite_centavos ? Math.round(d.total_gasto_centavos / d.total_limite_centavos * 100) : 0;
+    const st = restante < 0 ? "estourou" : (pctReal >= 80 ? "atencao" : "ok");
     resumo.innerHTML = `
-      <div class="painel" style="background:var(--fundo);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div><div class="sub">Teto total (${orcMesLabel(d.mes)})</div><div style="font-size:18px;font-weight:700">${reais(d.total_limite_centavos / 100)}</div></div>
-        <div><div class="sub">Gasto</div><div style="font-size:18px;font-weight:700">${reais(d.total_gasto_centavos / 100)}</div></div>
-        <div><div class="sub">Resta</div><div style="font-size:18px;font-weight:700;color:${restante < 0 ? "var(--vermelho)" : "var(--verde)"}">${reais(restante / 100)}</div></div>
-        <div><div class="sub">Consumido</div><div style="font-size:18px;font-weight:700">${pctTotal}%</div></div>
+      <div class="orc-hero">
+        <div class="orc-hero-linha">
+          <span class="titulo">Teto total · ${orcMesLabel(d.mes)}</span>
+          <span class="grande">${reais(d.total_gasto_centavos / 100)} <span style="color:var(--texto2);font-size:14px;font-weight:600">/ ${reais(d.total_limite_centavos / 100)}</span></span>
+        </div>
+        <div class="orc-barra"><div style="width:${pctTotal}%;background:${ORC_COR[st]}"></div></div>
+        <div class="orc-hero-stats">
+          <div class="s"><div class="r">Consumido</div><div class="v">${pctReal}%</div></div>
+          <div class="s"><div class="r">${restante < 0 ? "Estourou" : "Resta"}</div><div class="v" style="color:${restante < 0 ? "var(--vermelho)" : "var(--verde)"}">${reais(Math.abs(restante) / 100)}</div></div>
+          <div class="s"><div class="r">Categorias com teto</div><div class="v">${comTeto.length}</div></div>
+        </div>
       </div>`;
   } else {
-    resumo.innerHTML = '<div class="sub" style="margin-bottom:6px">Nenhum teto definido para este mês. Defina um limite nas categorias abaixo.</div>';
+    resumo.innerHTML = '<div class="orc-aviso-vazio">Nenhum teto definido para <b>' + orcMesLabel(d.mes) + '</b>. Toque em <b>Definir teto</b> numa categoria abaixo para começar.</div>';
   }
-  const CORES = { ok: "var(--verde)", atencao: "var(--amarelo)", estourou: "var(--vermelho)", sem_teto: "var(--borda)" };
+  // ----- cards por categoria -----
+  lista.className = "orc-cats";
   lista.innerHTML = d.itens.map(i => {
+    const cat = escAttr(i.categoria);
+    const idc = cssId(i.categoria);
     const temTeto = i.limite_centavos != null;
-    const cor = CORES[i.status];
-    const pct = temTeto ? Math.min(i.pct, 100) : 0;
-    const barra = temTeto ? `
-      <div style="height:8px;background:var(--fundo);border-radius:6px;overflow:hidden;margin:8px 0">
-        <div style="height:100%;width:${pct}%;background:${cor};transition:width .3s"></div>
-      </div>` : "";
-    const info = temTeto
-      ? `<div class="sub">${reais(i.gasto_centavos / 100)} de ${reais(i.limite_centavos / 100)} · ${i.status === "estourou" ? `<b style="color:var(--vermelho)">estourou ${reais((i.gasto_centavos - i.limite_centavos) / 100)}</b>` : `resta ${reais(i.restante_centavos / 100)}`} · ${i.pct}%</div>`
-      : `<div class="sub">Gasto ${reais(i.gasto_centavos / 100)} · <span style="opacity:.7">sem teto definido</span></div>`;
-    const limiteAtual = temTeto ? (i.limite_centavos / 100).toFixed(2) : "";
-    return `<div class="item" style="align-items:flex-start">
-      <div style="flex:1;min-width:0">
-        <div class="nome">${i.categoria} ${temTeto && i.status !== "ok" ? (i.status === "estourou" ? "🔴" : "🟡") : ""}</div>
-        ${barra}${info}
+    const editForm = `
+      <div class="orc-edit" id="orc-edit-${idc}" style="display:none">
+        <div class="pre"><span class="rs">R$</span>
+          <input type="number" step="0.01" min="0" placeholder="0,00" id="orc-in-${idc}"
+                 value="${temTeto ? (i.limite_centavos / 100).toFixed(2) : ""}"
+                 onkeydown="if(event.key==='Enter')salvarTeto('${cat}');if(event.key==='Escape')orcFecharEdicao('${cat}')"></div>
+        <button class="acao ib mini" title="Salvar" onclick="salvarTeto('${cat}')">${ico('salvar', 16)}</button>
+        <button class="perigo ib mini" title="Cancelar" onclick="orcFecharEdicao('${cat}')">${ico('fechar', 15)}</button>
+      </div>`;
+    if (!temTeto) {
+      return `<div class="orc-card semteto" id="orc-card-${idc}">
+        <div class="orc-card-top"><span class="nome">${i.categoria}</span></div>
+        <div class="orc-view" id="orc-view-${idc}">
+          <div class="orc-rodape">
+            <span class="gasto-mini">Gasto ${reais(i.gasto_centavos / 100)}</span>
+            <button class="btn-ghost" onclick="orcAbrirEdicao('${cat}')">+ Definir teto</button>
+          </div>
+        </div>${editForm}
+      </div>`;
+    }
+    const pct = Math.min(i.pct, 100);
+    const resto = i.status === "estourou"
+      ? `<span class="resto">Estourou <b class="neg">${reais((i.gasto_centavos - i.limite_centavos) / 100)}</b></span>`
+      : `<span class="resto">Resta ${reais(i.restante_centavos / 100)}</span>`;
+    return `<div class="orc-card ${i.status === "estourou" ? "estourou" : ""}" id="orc-card-${idc}">
+      <div class="orc-card-top">
+        <span class="nome">${i.categoria}</span>
+        <span class="orc-pill ${i.status}">${ORC_PILL[i.status]} · ${i.pct}%</span>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;margin-left:10px">
-        <input type="number" step="0.01" min="0" placeholder="teto" value="${limiteAtual}" id="orc-in-${cssId(i.categoria)}" style="width:92px" onkeydown="if(event.key==='Enter')salvarTeto('${escAttr(i.categoria)}')">
-        <button class="acao ib" title="Salvar teto" onclick="salvarTeto('${escAttr(i.categoria)}')">${ico('salvar', 15)}</button>
-        ${temTeto ? `<button class="perigo ib" title="Remover teto deste mês" onclick="removerTeto('${escAttr(i.categoria)}')">${ico('apagar', 15)}</button>` : ""}
-      </div>
+      <div class="orc-view" id="orc-view-${idc}">
+        <div class="orc-nums"><span class="g">${reais(i.gasto_centavos / 100)}</span><span class="l">de ${reais(i.limite_centavos / 100)}</span></div>
+        <div class="orc-barra"><div style="width:${pct}%;background:${ORC_COR[i.status]}"></div></div>
+        <div class="orc-rodape">
+          ${resto}
+          <span class="orc-acoes">
+            <button class="perigo ib" title="Editar teto" onclick="orcAbrirEdicao('${cat}')">${ico('editar', 15)}</button>
+            <button class="perigo ib" title="Remover teto deste mês" onclick="removerTeto('${cat}')">${ico('apagar', 15)}</button>
+          </span>
+        </div>
+      </div>${editForm}
     </div>`;
   }).join("");
 }
 function cssId(s) { return s.replace(/[^a-zA-Z0-9]/g, "_"); }
 function escAttr(s) { return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+function orcAbrirEdicao(categoria) {
+  const idc = cssId(categoria);
+  const v = document.getElementById("orc-view-" + idc), e = document.getElementById("orc-edit-" + idc);
+  if (v) v.style.display = "none";
+  if (e) { e.style.display = "flex"; const inp = document.getElementById("orc-in-" + idc); if (inp) { inp.focus(); inp.select(); } }
+}
+function orcFecharEdicao(categoria) {
+  const idc = cssId(categoria);
+  const v = document.getElementById("orc-view-" + idc), e = document.getElementById("orc-edit-" + idc);
+  if (e) e.style.display = "none";
+  if (v) v.style.display = "";
+}
 async function salvarTeto(categoria) {
   const inp = document.getElementById("orc-in-" + cssId(categoria));
   const v = inp.value;

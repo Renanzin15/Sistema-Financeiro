@@ -1883,3 +1883,19 @@ Alim.R$800/Transp.R$300/Contas R$400): Alimentação 🟡 R$680 (85%), Transport
 R$50), Contas R$220 vindo de uma dívida (Luz) paga; auto-sugestão uber→Transporte, mercado→Alimentação,
 netflix/pizza→vazio; editar teto inline e navegar de mês (herança) OK; zero erros reais no console.
 (Obs.: instalei `httpx` no Python local — dependência do TestClient de teste, não afeta o app.)
+
+## Etapa 31 — Orçamento: redesenho do front (23/09/2026)
+
+O Renan achou o front do Orçamento cru ("está ruim"): lista achatada, input "teto" minúsculo sempre
+visível em cada linha, sem hierarquia. Redesenhei (só `app.js` + `styles.css`, sem tocar no backend):
+- **Resumo hero** com barra geral colorida por status + 3 números (Consumido / Resta / Categorias com teto).
+- **Cards por categoria** (grade responsiva, 1 coluna no celular): nome + pill de status
+  ("No limite · 55%" verde / "Atenção · 85%" amarelo / "Estourou · 117%" vermelho), gasto/teto grande,
+  barra com gradiente por status, "Resta"/"Estourou" embaixo.
+- **Edição só ao clicar**: input aparece ao tocar em ✏️ (editar) ou "+ Definir teto"; tem prefixo R$,
+  botões salvar (✓) e cancelar (✕), Enter salva / Esc cancela. Categorias sem teto ficam em card
+  tracejado discreto. Ícones novos `salvar` (check) e `fechar` (X).
+
+**Testado no navegador (desktop + mobile 375px):** hero/cards/pills/barras corretos; edição abre-salva-
+cancela; salvar recalcula na hora (Alimentação 800→900 → pill verde 76%, hero R$1.600/78%); empilha no
+celular; zero erros de console.

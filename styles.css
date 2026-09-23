@@ -396,3 +396,64 @@
   .dp-rodape { display: flex; justify-content: space-between; margin-top: 10px; }
   .dp-acao { background: none; border: none; color: var(--roxo-claro); padding: 6px 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; border-radius: 8px; }
   .dp-acao:hover { background: var(--roxo-fundo); }
+
+  /* ===== Orçamento por categoria (Mudança 2) ===== */
+  .orc-hero {
+    background: linear-gradient(150deg, rgba(124,92,255,.16), transparent 58%), var(--painel2);
+    border: 1px solid var(--borda); border-radius: 16px; padding: 18px 20px; margin-bottom: 20px;
+  }
+  .orc-hero-linha { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 12px; }
+  .orc-hero .titulo { font-size: 12.5px; color: var(--texto2); font-weight: 600; }
+  .orc-hero .grande { font-size: 22px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .orc-hero-stats { display: flex; gap: 26px; margin-top: 14px; flex-wrap: wrap; }
+  .orc-hero-stats .r { font-size: 11.5px; color: var(--faint); margin-bottom: 2px; }
+  .orc-hero-stats .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .orc-aviso-vazio { font-size: 13px; color: var(--texto2); margin-bottom: 16px; }
+
+  .orc-barra { height: 9px; background: var(--surface-3); border-radius: 6px; overflow: hidden; }
+  .orc-barra > div { height: 100%; border-radius: 6px; transition: width .5s var(--ease); }
+
+  .orc-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .orc-card {
+    background: var(--painel2); border: 1px solid var(--borda); border-radius: 14px;
+    padding: 15px 16px; display: flex; flex-direction: column; gap: 11px;
+    transition: border-color .2s var(--ease), transform .12s var(--ease);
+  }
+  .orc-card:hover { border-color: var(--borda-2); }
+  .orc-card.estourou { border-color: rgba(251,113,133,.38); }
+  .orc-card.semteto { background: var(--painel); border-style: dashed; }
+  .orc-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .orc-card .nome { font-size: 14px; font-weight: 650; }
+  .orc-card.semteto .nome { color: var(--texto2); }
+  .orc-pill { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: var(--r-pill); white-space: nowrap; }
+  .orc-pill.ok { color: var(--verde); background: var(--verde-fundo); }
+  .orc-pill.atencao { color: var(--amarelo); background: var(--amarelo-fundo); }
+  .orc-pill.estourou { color: var(--vermelho); background: var(--vermelho-fundo); }
+  .orc-nums { display: flex; justify-content: space-between; align-items: baseline; font-variant-numeric: tabular-nums; gap: 8px; }
+  .orc-nums .g { font-size: 19px; font-weight: 750; letter-spacing: -.02em; }
+  .orc-nums .l { font-size: 12.5px; color: var(--texto2); }
+  .orc-rodape { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .orc-rodape .resto { font-size: 12px; color: var(--texto2); }
+  .orc-rodape .resto b.neg { color: var(--vermelho); }
+  .orc-rodape .gasto-mini { font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .orc-acoes { display: flex; gap: 6px; align-items: center; }
+
+  .btn-ghost {
+    font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    background: none; color: var(--roxo-claro); border: 1px solid var(--borda-2);
+    border-radius: 10px; padding: 7px 12px; transition: all .16s var(--ease); white-space: nowrap;
+  }
+  .btn-ghost:hover { background: var(--roxo-fundo); border-color: transparent; }
+
+  .orc-edit { display: flex; gap: 7px; align-items: center; }
+  .orc-edit .pre { position: relative; flex: 1; min-width: 0; }
+  .orc-edit .pre .rs { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--faint); font-size: 13px; pointer-events: none; }
+  .orc-edit input {
+    width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px 10px 30px; color: var(--texto);
+    border: 1px solid var(--borda); border-radius: var(--r-ctl); background: var(--painel);
+    font-variant-numeric: tabular-nums; transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+  }
+  .orc-edit input:focus { outline: none; border-color: rgba(139,92,246,.7); box-shadow: 0 0 0 4px rgba(139,92,246,.16); }
+  button.acao.ib { padding: 8px; line-height: 0; }
+  button.acao.ib svg { display: block; }
+  .ib.mini { width: 34px; height: 34px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
