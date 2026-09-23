@@ -1814,3 +1814,34 @@ na fatura vira item (não vira avulsa); não duplica em recargas; validações; 
 mantém a cobrança gerada. **Teste visual no navegador**: tela renderiza, criei "Windows 11 Pro" (anual,
 avulsa) → conta R$99 na agenda + próx. 2027; "Figma" (mensal, na fatura) → item de R$45 na fatura;
 "Contas a pagar R$144" batendo; zero erros de console.
+
+## Etapa 29 — Previsão Financeira (Mudança 1 do plano de evolução) (23/09/2026)
+
+Primeira das 7 mudanças do plano. Objetivo: mostrar **para onde o saldo vai**, projetando os eventos
+certos até uma data. Decisões combinadas com o Renan: base = **saldo total** (livre + caixinhas);
+entram **só eventos certos** (contas a pagar pelo restante, assinaturas, licenças, renda automática);
+períodos **7 / 30 / 60 dias + fim do mês + próximo mês**; apresentação = **cards + gráfico + alerta de
+saldo negativo**. "Próximo mês" = projeta até o fim do mês seguinte; valor desconhecido = R$0.
+
+**Backend (`main.py`):** `import calendar`. Motor `projetar_financas(user_id, ate_iso)` + helpers
+`saldo_total` (livre + soma das caixinhas), `_dia_no_mes` (dia seguro no mês, ajusta fim de mês) e
+`_iter_meses`. Antes de projetar, materializa o presente (`gerar_entradas_recorrentes`,
+`gerar_recorrentes_do_mes`, `gerar_licencas`) e só **projeta o futuro** — evita contar em dobro. Eventos:
+(1) contas não pagas no horizonte pelo **restante**; (2) entradas recorrentes (mês atual ainda não
+recebido + futuras, dedup por nome+mês); (3) recorrentes só para meses **após** o atual; (4) licenças a
+partir do `proximo_vencimento` avançando pela periodicidade. Ordena, monta a **série** do saldo no tempo
+e detecta o 1º dia de **saldo negativo**. Rota `GET /previsao?ate=AAAA-MM-DD` (só leitura, valida a data).
+Decisão registrada: contas **vencidas e não pagas** (vencimento no passado) não entram na projeção pra
+frente — a previsão é de hoje em diante (dívidas atrasadas podem virar alerta próprio na Mudança 4).
+
+**Front (`index.html` + `app.js`):** item de menu "Previsão" (ícone novo `previsao`=linha subindo) entre
+Análise e Categorias. Tela com chips de período (7/30/60/fim do mês/próximo mês), banner de alerta
+(negativo/positivo), 4 cards (saldo atual → +entradas → −saídas → saldo projetado), gráfico de linha do
+saldo no tempo (Chart.js, vermelho se cruza o zero) e lista de eventos com origem. `carregarPrevisao`
+chamado ao abrir a aba; `prevAteDate` calcula a data final por período.
+
+**Testado:** 14/14 no backend isolado (SQLite) — saldo total como base, contas como saída pelo restante,
+filtro de horizonte, renda futura do mês, alerta de negativo, série ordenada, validação de data,
+isolamento A×B. **Navegador**: cenário saldo R$2.450 + salário + 2 contas + assinatura → cards (atual
+R$2.450 / +R$1.700 / −R$327,25 / projetado R$3.822,75), gráfico e eventos corretos; "próximo mês" soma
+o salário 2× (R$3.400) corretamente; zero erros de console. Mudou `main.py` + `index.html` + `app.js`.

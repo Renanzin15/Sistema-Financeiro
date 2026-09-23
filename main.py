@@ -673,6 +673,131 @@ def gerar_licencas(user_id):
 
 
 # ========================================================
+# PREVISÃO FINANCEIRA — projeta o saldo futuro a partir dos dados que já existem.
+# Base = saldo TOTAL de hoje (livre + caixinhas). Só eventos CERTOS e datados:
+# contas a pagar + assinaturas + licenças + renda automática, projetados até uma data.
+# Não cria nada: só lê (materializa o mês atual como as outras telas já fazem).
+# ========================================================
+
+def saldo_total(con, user_id):
+    """Todo o dinheiro de hoje = saldo livre + soma dos saldos das caixinhas."""
+    total = calcular_saldo_livre(con, user_id)
+    for (cid,) in con.execute("SELECT id FROM caixinhas WHERE user_id=?", (user_id,)).fetchall():
+        total += saldo_da_caixinha(con, user_id, cid)
+    return total
+
+def _dia_no_mes(ano, mes, dia):
+    """Data AAAA-MM-DD no dia pedido, encaixando dia 31 em meses curtos."""
+    d = min(int(dia), calendar.monthrange(ano, mes)[1])
+    return f"{ano:04d}-{mes:02d}-{d:02d}"
+
+def _iter_meses(inicio, fim):
+    """(ano, mes) do mês de `inicio` até o mês de `fim`, inclusive (ambos date)."""
+    y, m = inicio.year, inicio.month
+    while (y, m) <= (fim.year, fim.month):
+        yield y, m
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+def projetar_financas(user_id, ate_iso):
+    """Projeta entradas/saídas certas de hoje até `ate_iso` e devolve saldo projetado,
+    linha do tempo do saldo e o 1º dia (se houver) em que o saldo fica negativo."""
+    # materializa o mês atual (mesma lógica das outras telas) pra não perder nem duplicar
+    gerar_entradas_recorrentes(user_id)
+    gerar_recorrentes_do_mes(user_id)
+    gerar_licencas(user_id)
+
+    con = conectar()
+    hoje = date.today()
+    hoje_iso = hoje.isoformat()
+    ate = date.fromisoformat(ate_iso)
+    mes_atual = (hoje.year, hoje.month)
+    saldo_ini = saldo_total(con, user_id)
+    eventos = []
+
+    # 1) SAÍDAS certas: contas a pagar não pagas, vencimento em [hoje..ate], usando o RESTANTE
+    for cid, nome, valor, venc, tipo_conta in con.execute(
+        "SELECT id, nome, valor_centavos, vencimento, tipo_conta FROM contas "
+        "WHERE user_id=? AND paga=0 AND (arquivada=0 OR arquivada IS NULL) AND vencimento >= ? AND vencimento <= ?",
+        (user_id, hoje_iso, ate_iso)
+    ).fetchall():
+        total = total_conta(con, user_id, cid, tipo_conta or "simples", valor)
+        restante = total - total_pago_conta(con, user_id, cid)
+        if restante > 0:
+            eventos.append({"data": venc, "descricao": nome, "tipo": "saida", "valor_centavos": restante, "origem": "conta"})
+
+    # 2) ENTRADAS: renda automática — inclui a do mês atual ainda-não-recebida + meses futuros
+    for nome, valor, dia, criada_em in con.execute(
+        "SELECT nome, valor_centavos, dia, criada_em FROM entradas_recorrentes WHERE user_id=?", (user_id,)
+    ).fetchall():
+        if not valor or valor <= 0 or not dia:
+            continue
+        for ano, mes in _iter_meses(hoje, ate):
+            data = _dia_no_mes(ano, mes, dia)
+            if data < hoje_iso or data > ate_iso:
+                continue
+            if criada_em and data < criada_em:
+                continue
+            ja = con.execute(  # já materializada como lançamento nesse mês?
+                "SELECT id FROM lancamentos WHERE user_id=? AND tipo='entrada' AND descricao=? AND data LIKE ?",
+                (user_id, nome, f"{ano:04d}-{mes:02d}%")
+            ).fetchone()
+            if ja is None:
+                eventos.append({"data": data, "descricao": nome, "tipo": "entrada", "valor_centavos": valor, "origem": "renda"})
+
+    # 3) SAÍDAS futuras: assinaturas — só meses APÓS o atual (o mês atual já virou conta em (1))
+    for nome, valor, dia in con.execute(
+        "SELECT nome, valor_centavos, dia_vencimento FROM recorrentes WHERE user_id=?", (user_id,)
+    ).fetchall():
+        if not valor or valor <= 0 or not dia:
+            continue
+        for ano, mes in _iter_meses(hoje, ate):
+            if (ano, mes) <= mes_atual:
+                continue
+            data = _dia_no_mes(ano, mes, dia)
+            if hoje_iso <= data <= ate_iso:
+                eventos.append({"data": data, "descricao": nome, "tipo": "saida", "valor_centavos": valor, "origem": "assinatura"})
+
+    # 4) SAÍDAS futuras: licenças — a partir do proximo_vencimento (já é futuro), passo pela periodicidade
+    for nome, valor, periodicidade, prox in con.execute(
+        "SELECT nome, valor_centavos, periodicidade, proximo_vencimento FROM licencas WHERE user_id=?", (user_id,)
+    ).fetchall():
+        if not valor or valor <= 0 or not prox:
+            continue
+        d = prox
+        guard = 0
+        while d <= ate_iso and guard < 120:
+            guard += 1
+            if d >= hoje_iso:
+                eventos.append({"data": d, "descricao": nome, "tipo": "saida", "valor_centavos": valor, "origem": "licenca"})
+            d = _avancar_periodo(d, periodicidade)
+
+    con.close()
+
+    eventos.sort(key=lambda e: (e["data"], e["tipo"]))
+    entradas = sum(e["valor_centavos"] for e in eventos if e["tipo"] == "entrada")
+    saidas = sum(e["valor_centavos"] for e in eventos if e["tipo"] == "saida")
+    # linha do tempo do saldo (pro gráfico) + 1º dia em que fica negativo
+    serie = [{"data": hoje_iso, "saldo_centavos": saldo_ini}]
+    saldo = saldo_ini
+    negativo = None
+    for e in eventos:
+        saldo += e["valor_centavos"] if e["tipo"] == "entrada" else -e["valor_centavos"]
+        serie.append({"data": e["data"], "saldo_centavos": saldo})
+        if negativo is None and saldo < 0:
+            negativo = {"data": e["data"], "valor_centavos": saldo}
+    return {
+        "saldo_atual_centavos": saldo_ini,
+        "ate": ate_iso,
+        "entradas_centavos": entradas,
+        "saidas_centavos": saidas,
+        "saldo_projetado_centavos": saldo_ini + entradas - saidas,
+        "eventos": eventos,
+        "serie": serie,
+        "saldo_negativo": negativo,
+    }
+
+
+# ========================================================
 # E3: LEITOR DE EXTRATO (OFX / CSV) — sem bibliotecas externas.
 # Lê o texto do arquivo, extrai (descrição, valor, data) e tenta adivinhar a caixinha.
 # Não guarda nada sozinho: devolve uma prévia para o usuário revisar e confirmar.
@@ -1202,6 +1327,13 @@ def saldo_livre(user_id: str = Depends(exigir_login)):
         "saldo_livre_reais": livre / 100,
         "tudo_distribuido": livre == 0
     }
+
+@app.get("/previsao")
+def previsao(ate: str, user_id: str = Depends(exigir_login)):
+    """Projeção do saldo de hoje até a data `ate` (AAAA-MM-DD). Só leitura."""
+    if not ate or not data_valida(ate):
+        raise HTTPException(status_code=400, detail="Data final da previsão inválida.")
+    return projetar_financas(user_id, ate)
 
 
 # ========================================================

@@ -27,6 +27,7 @@
   <button class="item-menu" data-tela="contas"><span class="ico" data-ico="dividas" data-ico-size="19"></span><span>Dívidas</span></button>
   <button class="item-menu" data-tela="historico"><span class="ico" data-ico="historico" data-ico-size="19"></span><span>Histórico</span></button>
   <button class="item-menu" data-tela="analise"><span class="ico" data-ico="analise" data-ico-size="19"></span><span>Análise</span></button>
+  <button class="item-menu" data-tela="previsao"><span class="ico" data-ico="previsao" data-ico-size="19"></span><span>Previsão</span></button>
   <button class="item-menu" data-tela="categorias"><span class="ico" data-ico="categoria" data-ico-size="19"></span><span>Categorias</span></button>
   <button class="item-menu" data-tela="regras"><span class="ico" data-ico="gatilho" data-ico-size="19"></span><span>Regras</span></button>
   <button class="item-menu" data-tela="licencas"><span class="ico" data-ico="licenca" data-ico-size="19"></span><span>Licenças</span></button>
@@ -422,6 +423,30 @@
         <button class="acao" onclick="criarLicenca()">Cadastrar licença</button>
         <div class="sub" style="margin-top:12px">A 1ª cobrança já cai na agenda se o vencimento for deste mês. Apagar a licença <b>não</b> apaga as cobranças já geradas.</div>
       </div>
+    </div>
+  </section>
+
+  <!-- PREVISÃO -->
+  <section class="tela" id="previsao">
+    <div class="painel">
+      <h2>Previsão financeira 📈</h2>
+      <div class="sub" style="margin-bottom:14px">Projeção do seu saldo com base no que já é <b>certo</b>: contas a pagar, assinaturas, licenças e renda automática. Só estimativa do que tem data — o gasto do dia a dia não entra.</div>
+      <div class="filtros-prev" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="chip" data-prev="7">7 dias</button>
+        <button class="chip ativa" data-prev="30">30 dias</button>
+        <button class="chip" data-prev="60">60 dias</button>
+        <button class="chip" data-prev="mes">Fim do mês</button>
+        <button class="chip" data-prev="proximo">Próximo mês</button>
+      </div>
+      <div id="prev-alerta"></div>
+      <div id="prev-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px"></div>
+      <div class="painel" style="background:var(--fundo);margin-bottom:18px">
+        <h3 style="font-size:14px;margin-bottom:12px">Saldo projetado ao longo do tempo</h3>
+        <div style="position:relative;height:240px"><canvas id="grafico-previsao"></canvas></div>
+        <div id="prev-grafico-vazio" class="vazio" style="display:none">Sem eventos previstos neste período.</div>
+      </div>
+      <h3 style="font-size:14px;margin-bottom:12px">Eventos previstos</h3>
+      <div id="prev-eventos"></div>
     </div>
   </section>
 </main>

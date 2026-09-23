@@ -35,7 +35,8 @@ const ICONES = {
   categoria: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   gatilho: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
   importar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
-  licenca: '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>'
+  licenca: '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
+  previsao: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -1572,6 +1573,107 @@ async function apagarLicenca(id) {
   catch (e) { aviso(e.message, "erro"); }
 }
 
+// ===== Previsão financeira =====
+let graficoPrevisao = null;
+let prevPeriodo = "30";
+const PREV_ORIGEM = { conta: "Conta", assinatura: "Assinatura", licenca: "Licença", renda: "Renda" };
+
+// calcula a data-fim (AAAA-MM-DD) de cada período a partir de hoje
+function prevAteDate(periodo) {
+  const h = new Date(); h.setHours(0,0,0,0);
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  if (periodo === "mes") return iso(new Date(h.getFullYear(), h.getMonth()+1, 0));      // último dia do mês atual
+  if (periodo === "proximo") return iso(new Date(h.getFullYear(), h.getMonth()+2, 0));  // último dia do mês que vem
+  const d = new Date(h); d.setDate(d.getDate() + parseInt(periodo)); return iso(d);     // +N dias
+}
+
+function fmtDataBR(iso) { const [a,m,d] = iso.split("-"); return `${d}/${m}`; }
+
+async function carregarPrevisao() {
+  const ate = prevAteDate(prevPeriodo);
+  let p;
+  try { p = await pedir("/previsao?ate=" + ate); }
+  catch (e) { aviso(e.message, "erro"); return; }
+
+  // cards
+  const cards = document.getElementById("prev-cards");
+  const projCor = p.saldo_projetado_centavos < 0 ? "var(--vermelho)" : "var(--verde)";
+  cards.innerHTML = `
+    ${cardPrev("Saldo atual", reais(p.saldo_atual_centavos/100), "var(--texto)")}
+    ${cardPrev("Entradas previstas", "+ " + reais(p.entradas_centavos/100), "var(--verde)")}
+    ${cardPrev("Saídas previstas", "− " + reais(p.saidas_centavos/100), "var(--vermelho)")}
+    ${cardPrev("Saldo projetado", reais(p.saldo_projetado_centavos/100), projCor)}`;
+
+  // alerta de saldo negativo
+  const alerta = document.getElementById("prev-alerta");
+  if (p.saldo_negativo) {
+    alerta.innerHTML = `<div style="background:var(--vermelho-fundo);border:1px solid var(--vermelho);color:var(--vermelho);
+      border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:14px">
+      ⚠️ Seu saldo fica <b>negativo em ${fmtDataBR(p.saldo_negativo.data)}</b> (chega a ${reais(p.saldo_negativo.valor_centavos/100)}).</div>`;
+  } else {
+    alerta.innerHTML = `<div style="background:var(--verde-fundo);border:1px solid var(--verde);color:var(--verde);
+      border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:14px">
+      ✓ O saldo se mantém positivo em todo o período.</div>`;
+  }
+
+  // gráfico de linha do saldo ao longo do tempo
+  desenharGraficoPrevisao(p.serie);
+
+  // lista de eventos
+  const el = document.getElementById("prev-eventos");
+  if (!p.eventos.length) {
+    el.innerHTML = '<div class="vazio">Nenhum evento previsto neste período.</div>';
+    return;
+  }
+  el.innerHTML = p.eventos.map(e => {
+    const ent = e.tipo === "entrada";
+    return `<div class="item">
+      <div><div class="nome">${e.descricao}</div>
+        <div class="sub">${fmtDataBR(e.data)} · ${PREV_ORIGEM[e.origem] || e.origem}</div></div>
+      <span class="valor ${ent ? "mais" : "menos"}">${ent ? "+ " : "− "}${reais(e.valor_centavos/100)}</span>
+    </div>`;
+  }).join("");
+}
+
+function cardPrev(rotulo, valor, cor) {
+  return `<div style="background:var(--fundo);border:1px solid var(--borda);border-radius:12px;padding:14px 16px">
+    <div class="sub" style="font-size:12px;margin-bottom:4px">${rotulo}</div>
+    <div style="font-size:20px;font-weight:700;color:${cor}">${valor}</div></div>`;
+}
+
+function desenharGraficoPrevisao(serie) {
+  const canvas = document.getElementById("grafico-previsao");
+  const vazio = document.getElementById("prev-grafico-vazio");
+  if (!serie || serie.length < 2) {
+    canvas.style.display = "none"; if (vazio) vazio.style.display = "block";
+    if (graficoPrevisao) { graficoPrevisao.destroy(); graficoPrevisao = null; }
+    return;
+  }
+  canvas.style.display = "block"; if (vazio) vazio.style.display = "none";
+  const labels = serie.map(s => fmtDataBR(s.data));
+  const valores = serie.map(s => s.saldo_centavos / 100);
+  const temNeg = valores.some(v => v < 0);
+  const dados = {
+    labels,
+    datasets: [{
+      data: valores, borderColor: temNeg ? "#fb7185" : "#7c5cff",
+      backgroundColor: "rgba(124,92,255,0.12)", fill: true, tension: 0.25,
+      pointRadius: 3, pointBackgroundColor: temNeg ? "#fb7185" : "#7c5cff", borderWidth: 2
+    }]
+  };
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false },
+      tooltip: { callbacks: { label: c => "Saldo: " + reais(c.parsed.y) } } },
+    scales: {
+      x: { ticks: { color: "#a8a2c8", font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: "rgba(168,162,200,0.08)" } },
+      y: { ticks: { color: "#a8a2c8", font: { size: 11 }, callback: v => "R$ " + v }, grid: { color: "rgba(168,162,200,0.08)" } }
+    }
+  };
+  if (graficoPrevisao) { graficoPrevisao.data = dados; graficoPrevisao.options = opts; graficoPrevisao.update(); }
+  else { graficoPrevisao = new Chart(canvas, { type: "line", data: dados, options: opts }); }
+}
+
 async function pagarConta(id) {
   const caixinhaId = document.getElementById("pagar-" + id).value;
   if (!caixinhaId) return aviso("Crie uma caixinha para pagar.", "erro");
@@ -1910,7 +2012,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", previsao: "Previsão", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
@@ -1920,6 +2022,17 @@ document.querySelectorAll(".item-menu").forEach(item => {
     item.classList.add("ativa");
     document.getElementById(tela).classList.add("ativa");
     document.getElementById("titulo-tela").textContent = titulos[tela];
+    if (tela === "previsao") carregarPrevisao();   // previsão carrega ao abrir (dado fresco do servidor)
+  });
+});
+
+// chips de período da Previsão
+document.querySelectorAll(".filtros-prev .chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    document.querySelectorAll(".filtros-prev .chip").forEach(c => c.classList.remove("ativa"));
+    chip.classList.add("ativa");
+    prevPeriodo = chip.dataset.prev;
+    carregarPrevisao();
   });
 });
 
