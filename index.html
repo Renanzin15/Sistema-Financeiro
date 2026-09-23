@@ -28,6 +28,7 @@
   <button class="item-menu" data-tela="historico"><span class="ico" data-ico="historico" data-ico-size="19"></span><span>Histórico</span></button>
   <button class="item-menu" data-tela="analise"><span class="ico" data-ico="analise" data-ico-size="19"></span><span>Análise</span></button>
   <button class="item-menu" data-tela="previsao"><span class="ico" data-ico="previsao" data-ico-size="19"></span><span>Previsão</span></button>
+  <button class="item-menu" data-tela="comparar"><span class="ico" data-ico="comparar" data-ico-size="19"></span><span>Comparar</span></button>
   <button class="item-menu" data-tela="orcamento"><span class="ico" data-ico="orcamento" data-ico-size="19"></span><span>Orçamento</span></button>
   <button class="item-menu" data-tela="categorias"><span class="ico" data-ico="categoria" data-ico-size="19"></span><span>Categorias</span></button>
   <button class="item-menu" data-tela="regras"><span class="ico" data-ico="gatilho" data-ico-size="19"></span><span>Regras</span></button>
@@ -451,6 +452,26 @@
       </div>
       <h3 style="font-size:14px;margin-bottom:12px">Eventos previstos</h3>
       <div id="prev-eventos"></div>
+    </div>
+  </section>
+
+  <!-- COMPARAÇÃO ENTRE MESES (Mudança 3) -->
+  <section class="tela" id="comparar">
+    <div class="painel">
+      <h2>Comparação entre meses ⚖️</h2>
+      <div class="sub" style="margin-bottom:14px">Escolha dois meses e veja o que <b>entrou</b>, <b>saiu</b> e <b>sobrou</b>, e onde o gasto subiu ou caiu por categoria. A comparação por categoria é fiel a partir de setembro/2026 (quando o gasto passou a ter categoria).</div>
+      <div class="cmp-controles">
+        <div class="campo" style="margin:0"><label>Mês base</label><input id="cmp-a" type="month" onchange="carregarComparar()"></div>
+        <span class="cmp-vs">vs</span>
+        <div class="campo" style="margin:0"><label>Comparar com</label><input id="cmp-b" type="month" onchange="carregarComparar()"></div>
+      </div>
+      <div id="cmp-resumo" class="cmp-resumo"></div>
+      <div class="painel" style="background:var(--fundo);margin:18px 0">
+        <h3 style="font-size:14px;margin-bottom:12px">Entrou · Saiu · Sobrou</h3>
+        <div style="position:relative;height:230px"><canvas id="grafico-comparar"></canvas></div>
+      </div>
+      <h3 style="font-size:14px;margin-bottom:4px">Por categoria</h3>
+      <div id="cmp-tabela"></div>
     </div>
   </section>
 

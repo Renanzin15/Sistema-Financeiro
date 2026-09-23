@@ -2342,6 +2342,54 @@ def remover_orcamento(categoria: str, mes: str, user_id: str = Depends(exigir_lo
 
 
 # ========================================================
+# ROTA DE COMPARAÇÃO ENTRE MESES (Mudança 3)
+# ========================================================
+
+def totais_mes(con, user_id, mes):
+    """Totais do mês (AAAA-MM), mesma regra da tela Análise:
+    entrou = entradas; saiu = gasto livre + contas pagas (fora transferências);
+    sobrou = entrou - saiu. Ignora alocações/rendimentos (poupar não é gastar)."""
+    entrou = con.execute(
+        "SELECT COALESCE(SUM(valor_centavos),0) FROM lancamentos "
+        "WHERE user_id=? AND tipo='entrada' AND substr(data,1,7)=?", (user_id, mes)
+    ).fetchone()[0]
+    saiu = con.execute(
+        "SELECT COALESCE(SUM(valor_centavos),0) FROM lancamentos "
+        "WHERE user_id=? AND tipo IN ('saida_livre','pagamento') AND substr(data,1,7)=? "
+        "AND COALESCE(descricao,'') NOT LIKE 'transferência%'", (user_id, mes)
+    ).fetchone()[0]
+    return {"entrou_centavos": entrou, "saiu_centavos": saiu, "sobrou_centavos": entrou - saiu}
+
+@app.get("/comparar")
+def comparar_meses(mes_a: str, mes_b: str, user_id: str = Depends(exigir_login)):
+    """Compara dois meses: resumo (entrou/saiu/sobrou) e gasto por categoria em cada um.
+    A variação é calculada no front. mes_a e mes_b no formato AAAA-MM."""
+    if not _mes_valido(mes_a) or not _mes_valido(mes_b):
+        raise HTTPException(status_code=400, detail="Mês inválido (use AAAA-MM).")
+    con = conectar()
+    resumo_a = totais_mes(con, user_id, mes_a)
+    resumo_b = totais_mes(con, user_id, mes_b)
+    gasto_a = gasto_por_categoria(con, user_id, mes_a)
+    gasto_b = gasto_por_categoria(con, user_id, mes_b)
+    # nomes reais das categorias do usuário (pra exibir com maiúsculas certas)
+    nomes = {}
+    for (nome,) in con.execute("SELECT nome FROM categorias WHERE user_id=?", (user_id,)).fetchall():
+        nomes[nome.lower()] = nome
+    con.close()
+    # une categorias que aparecem no cadastro OU em qualquer um dos dois meses
+    chaves = set(nomes) | set(gasto_a) | set(gasto_b)
+    categorias = []
+    for k in chaves:
+        a = gasto_a.get(k, 0)
+        b = gasto_b.get(k, 0)
+        if a == 0 and b == 0:
+            continue  # categoria sem gasto em nenhum dos dois meses não entra
+        categorias.append({"categoria": nomes.get(k, k), "a_centavos": a, "b_centavos": b})
+    categorias.sort(key=lambda c: c["b_centavos"], reverse=True)
+    return {"mes_a": mes_a, "mes_b": mes_b, "resumo_a": resumo_a, "resumo_b": resumo_b, "categorias": categorias}
+
+
+# ========================================================
 # ROTAS DE REGRAS DE SALÁRIO (E4)
 # ========================================================
 

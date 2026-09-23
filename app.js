@@ -52,7 +52,8 @@ const ICONES = {
   previsao: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
   orcamento: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   salvar: '<polyline points="20 6 9 17 4 12"/>',
-  fechar: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'
+  fechar: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  comparar: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -1316,6 +1317,95 @@ async function removerTeto(categoria) {
   } catch (e) { aviso(e.message, "erro"); }
 }
 
+// ===== M3: Comparação entre meses =====
+let graficoComparar = null;
+function mesAnterior(iso) {
+  let [a, m] = iso.split("-").map(Number);
+  m -= 1; if (m < 1) { m = 12; a--; }
+  return `${a}-${String(m).padStart(2, "0")}`;
+}
+// variação entre dois valores; maiorEhBom decide a cor (ex.: entrar mais é bom, gastar mais é ruim)
+function cmpVar(a, b, maiorEhBom) {
+  const seta = b > a ? "▲" : (b < a ? "▼" : "–");
+  let texto, cls;
+  if (a === 0 && b === 0) { return { texto: "sem mudança", cls: "neutro", seta: "–", pct: 0 }; }
+  if (a === 0) { texto = "novo"; }
+  else { const pct = Math.round((b - a) / a * 100); texto = (pct > 0 ? "+" : "") + pct + "%"; }
+  if (b === a) cls = "neutro";
+  else cls = ((b > a) === maiorEhBom) ? "sobe" : "desce";
+  return { texto, cls, seta, pct: a === 0 ? null : Math.round((b - a) / a * 100) };
+}
+async function carregarComparar() {
+  const ia = document.getElementById("cmp-a"), ib = document.getElementById("cmp-b");
+  const atual = new Date().toISOString().slice(0, 7);
+  if (!ib.value) ib.value = atual;              // "comparar com" = mês atual
+  if (!ia.value) ia.value = mesAnterior(ib.value); // "base" = mês anterior
+  let d;
+  try {
+    d = await pedir("/comparar?mes_a=" + ia.value + "&mes_b=" + ib.value);
+  } catch (e) { aviso(e.message, "erro"); return; }
+  renderComparar(d);
+}
+function renderComparar(d) {
+  const la = orcMesLabel(d.mes_a), lb = orcMesLabel(d.mes_b);
+  const r = document.getElementById("cmp-resumo");
+  const linhas = [
+    { rot: "Entrou", a: d.resumo_a.entrou_centavos, b: d.resumo_b.entrou_centavos, bom: true },
+    { rot: "Saiu", a: d.resumo_a.saiu_centavos, b: d.resumo_b.saiu_centavos, bom: false },
+    { rot: "Sobrou", a: d.resumo_a.sobrou_centavos, b: d.resumo_b.sobrou_centavos, bom: true },
+  ];
+  r.innerHTML = linhas.map(l => {
+    const v = cmpVar(l.a, l.b, l.bom);
+    return `<div class="cmp-card">
+      <div class="rot">${l.rot}</div>
+      <div class="val">${reais(l.b / 100)}</div>
+      <div class="base">${lb} · antes ${reais(l.a / 100)} (${la})</div>
+      <span class="cmp-var ${v.cls}">${v.seta} ${v.texto}</span>
+    </div>`;
+  }).join("");
+  desenharGraficoComparar(d, la, lb);
+  // tabela por categoria
+  const t = document.getElementById("cmp-tabela");
+  if (!d.categorias.length) {
+    t.innerHTML = '<div class="vazio">Nenhum gasto com categoria em nenhum dos dois meses.</div>';
+    return;
+  }
+  const corpo = d.categorias.map(c => {
+    const v = cmpVar(c.a_centavos, c.b_centavos, false); // gastar mais = ruim (vermelho)
+    return `<tr>
+      <td class="cat">${c.categoria}</td>
+      <td>${reais(c.a_centavos / 100)}</td>
+      <td>${reais(c.b_centavos / 100)}</td>
+      <td class="dpct ${v.cls}">${v.seta} ${v.texto}</td>
+    </tr>`;
+  }).join("");
+  t.innerHTML = `<table class="cmp-tab">
+    <thead><tr><th>Categoria</th><th>${la}</th><th>${lb}</th><th>Variação</th></tr></thead>
+    <tbody>${corpo}</tbody></table>`;
+}
+function desenharGraficoComparar(d, la, lb) {
+  const canvas = document.getElementById("grafico-comparar");
+  if (!canvas || typeof Chart === "undefined") return;
+  const dados = {
+    labels: ["Entrou", "Saiu", "Sobrou"],
+    datasets: [
+      { label: la, data: [d.resumo_a.entrou_centavos / 100, d.resumo_a.saiu_centavos / 100, d.resumo_a.sobrou_centavos / 100], backgroundColor: "rgba(167,139,250,.5)", borderRadius: 6 },
+      { label: lb, data: [d.resumo_b.entrou_centavos / 100, d.resumo_b.saiu_centavos / 100, d.resumo_b.sobrou_centavos / 100], backgroundColor: "#7c5cff", borderRadius: 6 },
+    ]
+  };
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: "#a8a2c8", usePointStyle: true, pointStyle: "circle", padding: 14, font: { family: "Inter, sans-serif", size: 12 } } },
+      tooltip: { callbacks: { label: (c) => c.dataset.label + ": " + reais(c.parsed.y) } } },
+    scales: {
+      x: { ticks: { color: "#a8a2c8", font: { size: 12 } }, grid: { display: false } },
+      y: { ticks: { color: "#a8a2c8", font: { size: 11 }, callback: (v) => "R$ " + v }, grid: { color: "rgba(168,162,200,0.08)" } }
+    }
+  };
+  if (graficoComparar) { graficoComparar.data = dados; graficoComparar.options = opts; graficoComparar.update(); }
+  else graficoComparar = new Chart(canvas, { type: "bar", data: dados, options: opts });
+}
+
 // E4: regras de salário — troca o rótulo do campo valor conforme o modo
 function ajustarModoRegra() {
   const modo = document.getElementById("rg-modo").value;
@@ -2194,7 +2284,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", previsao: "Previsão", orcamento: "Orçamento", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", orcamento: "Orçamento", categorias: "Categorias", regras: "Regras", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
@@ -2206,6 +2296,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     document.getElementById("titulo-tela").textContent = titulos[tela];
     if (tela === "previsao") carregarPrevisao();   // previsão carrega ao abrir (dado fresco do servidor)
     if (tela === "orcamento") carregarOrcamento();  // M2: orçamento carrega ao abrir
+    if (tela === "comparar") carregarComparar();    // M3: comparação carrega ao abrir
   });
 });
 

@@ -1902,3 +1902,26 @@ celular; zero erros de console.
 
 **Ajuste (23/09/2026):** o seletor de mês (`input type=month`) aparecia branco no tema escuro; corrigido
 com `color-scheme: dark` + `filter` no ícone do calendário (`#orc-mes` no styles.css).
+
+## Etapa 32 — Comparação entre meses (Mudança 3 do plano de evolução) (23/09/2026)
+
+Terceira mudança. Objetivo: comparar dois meses e ver onde subiu/caiu. Decisões do Renan: mostrar
+**resumo (entrou/saiu/sobrou) + por categoria**; formato **gráfico + tabela**; **ele escolhe os dois meses**.
+
+**Backend (`main.py`):** `totais_mes(con,user,mes)` — entrou = entradas; saiu = gasto livre + dívidas
+pagas (fora transferências, `descricao NOT LIKE 'transferência%'`); sobrou = entrou - saiu (poupar em
+caixinha não conta). Rota `GET /comparar?mes_a=&mes_b=` devolve resumo dos dois meses + gasto por
+categoria em cada (reaproveita `gasto_por_categoria` da Mudança 2; une categorias do cadastro e as que
+tiveram gasto; ordena pelo gasto do mês B). Sem mexer no banco.
+
+**Front (`index.html`+`app.js`+`styles.css`):** menu "Comparar" (ícone barras) + tela com dois seletores
+de mês (base vs comparar com; padrão mês anterior × atual), 3 cards de resumo com variação colorida,
+gráfico de barras agrupadas (Chart.js) e tabela por categoria (categoria · mês A · mês B · variação).
+Regra de cor: a **seta** (▲/▼) mostra a direção e a **cor** mostra se é bom/ruim — gastar mais = vermelho
+(mesmo com seta pra cima), gastar menos = verde; entrar/sobrar mais = verde. `cmpVar(a,b,maiorEhBom)`.
+
+**Testado:** 13/13 no backend isolado — totais, exclusão de transferência e de poupança, dívida paga na
+categoria, união/ordenação de categorias, isolamento A×B, validação. **Navegador** (ago × set): Entrou
+R$6.000 ▲+20% (verde), Saiu R$920 ▲+5% (vermelho), Sobrou R$5.080 ▲+23% (verde); tabela Alimentação
+▲+70% (vermelho), Transporte/Lazer ▼−50% (verde); gráfico agrupado OK; zero erros de console.
+Comparação por categoria só é fiel de set/2026 em diante (quando o gasto passou a ter categoria).

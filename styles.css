@@ -465,3 +465,35 @@
   button.acao.ib { padding: 8px; line-height: 0; }
   button.acao.ib svg { display: block; }
   .ib.mini { width: 34px; height: 34px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+
+  /* ===== Comparação entre meses (Mudança 3) ===== */
+  .cmp-controles { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .cmp-controles input[type=month] {
+    font-family: inherit; font-size: 13.5px; font-weight: 600; padding: 9px 12px;
+    color: var(--texto); background: var(--painel2); border: 1px solid var(--borda);
+    border-radius: var(--r-ctl); color-scheme: dark; cursor: pointer;
+  }
+  .cmp-controles input[type=month]:focus { outline: none; border-color: rgba(139,92,246,.7); box-shadow: 0 0 0 4px rgba(139,92,246,.16); }
+  .cmp-controles input[type=month]::-webkit-calendar-picker-indicator { filter: invert(.7); cursor: pointer; }
+  .cmp-vs { color: var(--faint); font-weight: 700; font-size: 13px; padding-bottom: 10px; }
+
+  .cmp-resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .cmp-resumo { grid-template-columns: 1fr; } }
+  .cmp-card { background: var(--painel2); border: 1px solid var(--borda); border-radius: 14px; padding: 15px 16px; }
+  .cmp-card .rot { font-size: 12.5px; color: var(--texto2); font-weight: 600; margin-bottom: 8px; }
+  .cmp-card .val { font-size: 22px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .cmp-card .base { font-size: 12px; color: var(--faint); margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .cmp-var { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; margin-top: 9px; padding: 3px 9px; border-radius: var(--r-pill); }
+  .cmp-var.sobe { color: var(--verde); background: var(--verde-fundo); }
+  .cmp-var.desce { color: var(--vermelho); background: var(--vermelho-fundo); }
+  .cmp-var.neutro { color: var(--texto2); background: var(--surface-3); }
+
+  .cmp-tab { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .cmp-tab th, .cmp-tab td { text-align: right; padding: 11px 10px; border-bottom: 1px solid var(--borda); font-size: 13.5px; }
+  .cmp-tab th { color: var(--texto2); font-weight: 600; font-size: 12px; }
+  .cmp-tab th:first-child, .cmp-tab td:first-child { text-align: left; }
+  .cmp-tab td.cat { font-weight: 600; }
+  .cmp-tab .dpct { font-weight: 700; font-size: 12.5px; }
+  .cmp-tab .dpct.sobe { color: var(--verde); }
+  .cmp-tab .dpct.desce { color: var(--vermelho); }
+  .cmp-tab .dpct.neutro { color: var(--faint); }
