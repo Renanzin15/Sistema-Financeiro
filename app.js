@@ -1538,10 +1538,10 @@ function renderCartoes() {
   }).join("");
 }
 async function criarCartao() {
-  const nome = document.getElementById("ct-nome").value.trim();
-  const limite = document.getElementById("ct-limite").value;
-  const fech = document.getElementById("ct-fechamento").value;
-  const venc = document.getElementById("ct-vencimento").value;
+  const nome = document.getElementById("card-nome").value.trim();
+  const limite = document.getElementById("card-limite").value;
+  const fech = document.getElementById("card-fechamento").value;
+  const venc = document.getElementById("card-vencimento").value;
   if (!nome) return aviso("Dê um nome ao cartão.", "erro");
   if (limite === "" || parseFloat(limite) < 0) return aviso("Informe o limite.", "erro");
   if (!fech || !venc) return aviso("Informe os dias de fechamento e vencimento.", "erro");
@@ -1558,18 +1558,18 @@ async function criarCartao() {
 }
 function editarCartao(id) {
   const k = CARTOES.find(c => c.id === id); if (!k) return;
-  document.getElementById("ct-nome").value = k.nome;
-  document.getElementById("ct-limite").value = (k.limite_centavos / 100).toFixed(2);
-  document.getElementById("ct-fechamento").value = k.dia_fechamento;
-  document.getElementById("ct-vencimento").value = k.dia_vencimento;
+  document.getElementById("card-nome").value = k.nome;
+  document.getElementById("card-limite").value = (k.limite_centavos / 100).toFixed(2);
+  document.getElementById("card-fechamento").value = k.dia_fechamento;
+  document.getElementById("card-vencimento").value = k.dia_vencimento;
   cartaoEditando = id;
-  const btn = document.getElementById("ct-btn"); if (btn) btn.textContent = "Salvar alterações";
-  document.getElementById("ct-nome").scrollIntoView({ block: "center" });
+  const btn = document.getElementById("card-btn"); if (btn) btn.textContent = "Salvar alterações";
+  document.getElementById("card-nome").scrollIntoView({ block: "center" });
 }
 function cancelarEdicaoCartao() {
   cartaoEditando = null;
-  ["ct-nome", "ct-limite", "ct-fechamento", "ct-vencimento"].forEach(i => { const el = document.getElementById(i); if (el) el.value = ""; });
-  const btn = document.getElementById("ct-btn"); if (btn) btn.textContent = "Adicionar cartão";
+  ["card-nome", "card-limite", "card-fechamento", "card-vencimento"].forEach(i => { const el = document.getElementById(i); if (el) el.value = ""; });
+  const btn = document.getElementById("card-btn"); if (btn) btn.textContent = "Adicionar cartão";
 }
 async function comprarCartao(cid) {
   const desc = document.getElementById("cp-desc-" + cid).value.trim();

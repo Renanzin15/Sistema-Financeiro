@@ -2097,3 +2097,9 @@ respostas; posso_comprar à vista (pode/não dá) e no cartão (cabe/estoura); v
 perguntas diretas respondem certo (sobra R$4.070; "R$185 a pagar, vence 20/09"); "R$300 à vista → Pode,
 sobrariam R$3.770"; "R$1.200 cartão 3x → Cabe no Nubank, ~R$400/parcela"; digitar "Mercadinho João" no
 gasto auto-seleciona Alimentação; zero erros de console. Cara de chat (balões roxo/escuro, chips).
+
+**Correção de bug (23/09/2026):** não dava pra criar cartão ("dê um nome" mesmo com nome preenchido).
+Causa: colisão de IDs — o formulário de Nova conta (Dívidas) e o de Novo cartão usavam ambos `ct-nome`
+(e o cartão reusava `ct-limite/ct-fechamento/ct-vencimento/ct-btn`). `getElementById` pegava o 1º (campo
+vazio da conta). Corrigido renomeando os campos do cartão pra `card-nome/card-limite/card-fechamento/
+card-vencimento/card-btn` (conta segue `ct-`). Verificado no navegador: cartão criado OK.
