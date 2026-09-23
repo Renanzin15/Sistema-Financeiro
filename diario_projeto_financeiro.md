@@ -2068,3 +2068,32 @@ tela `regras`.
 **Navegador**: menu sem "Regras" e com "Configurações"; 4 controles; desligar "Conta vencendo" + salvar
 derrubou o badge do sino de 2→1 (e gravou no backend); switch de menu recolhido persiste; Regras operam
 na nova casa; zero erros de console.
+
+## Etapa 38 — Assistente por regras, custo zero (Mudança 9) (23/09/2026)
+
+Recurso que "parece IA" mas roda 100% em regras (custo zero, privado). Decisões do Renan: 4 perguntas no
+chat; categorização que aprende no modo "só sugere"; "posso comprar?" completo; tela nova "Assistente"
+com cara de chat (balões). (IA de verdade segue reservada pra uma futura Mudança 10, se ele quiser.)
+
+**DB:** tabela nova `aprendizado_categoria` (descricao_norm, categoria, user_id) — Postgres DDL + SQLite.
+
+**Backend (`main.py`):** `_norm_desc` + `_aprender_categoria` (upsert 1 por descrição). `criar_lancamento`
+aprende a categoria confirmada quando salva um saida_livre com categoria. `sugerir_categoria` reescrita:
+consulta o aprendido primeiro (descrição igual), depois o MAPA_PALAVRAS; só retorna categoria que ainda
+existe. `GET /aprendizado-categoria` (mapa pro front). `GET /assistente?q=...` responde com número
+calculado: `sobra` (livre + entrou/saiu/sobrou do mês), `resumo` (totais + maior despesa), `pagar`
+(soma restante das contas/faturas em aberto + próxima a vencer via `_contas_a_pagar`), `gasto_categoria`
+(gasto vs teto), `posso_comprar` (à vista: cabe no livre? mês fecha negativo pela previsão? / cartão:
+cabe no disponível? parcela ~R$X). Validações (categoria/valor).
+
+**Front (`index.html`+`app.js`+`styles.css`):** menu "Assistente" (ícone `chat`) + tela com `#chat-msgs`
+(balões `.chat-bolha` user/bot) e `#chat-chips` (perguntas sugeridas). `carregarAssistente`, `chatMsg`,
+`perguntaDireta`, `perguntaGastoCategoria`/`respGastoCategoria` (chips de categoria), `perguntaPossoComprar`/
+`respPossoComprar` (form inline: valor + à vista/cartão + parcelas). `APRENDIDO` (mapa) carregado no
+`carregarTudo`; `sugerirCategoriaGasto` usa o aprendido antes do mapa de palavras.
+
+**Testado:** 12/12 no backend isolado — aprende "Mercadinho João → Alimentação" e reaplica sozinho; as 5
+respostas; posso_comprar à vista (pode/não dá) e no cartão (cabe/estoura); validações. **Navegador**:
+perguntas diretas respondem certo (sobra R$4.070; "R$185 a pagar, vence 20/09"); "R$300 à vista → Pode,
+sobrariam R$3.770"; "R$1.200 cartão 3x → Cabe no Nubank, ~R$400/parcela"; digitar "Mercadinho João" no
+gasto auto-seleciona Alimentação; zero erros de console. Cara de chat (balões roxo/escuro, chips).

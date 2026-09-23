@@ -626,3 +626,25 @@
   .sw span::before { content: ""; position: absolute; height: 17px; width: 17px; left: 2px; top: 2px; background: #cfc9e8; border-radius: 50%; transition: transform .18s var(--ease), background .18s var(--ease); }
   .sw input:checked + span { background: var(--grad); border-color: transparent; }
   .sw input:checked + span::before { transform: translateX(17px); background: #fff; }
+
+  /* ===== Assistente / chat (Mudança 9) ===== */
+  .chat-msgs { min-height: 240px; max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 2px 12px; }
+  .chat-bolha { max-width: 82%; padding: 11px 14px; border-radius: 15px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+  .chat-bolha.bot { align-self: flex-start; background: var(--painel2); border: 1px solid var(--borda); border-bottom-left-radius: 5px; color: var(--texto); }
+  .chat-bolha.user { align-self: flex-end; background: var(--grad); color: #fff; border-bottom-right-radius: 5px; box-shadow: 0 6px 16px -8px rgba(124,92,255,.8); }
+  .chat-opts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+  .chat-form { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; align-items: center; }
+  .chat-form input, .chat-form select {
+    font-family: inherit; font-size: 13px; padding: 8px 10px; color: var(--texto);
+    border: 1px solid var(--borda-2); border-radius: 9px; background: var(--painel); color-scheme: dark;
+  }
+  .chat-form input[type=number] { width: 110px; }
+  .chat-form input:focus, .chat-form select:focus { outline: none; border-color: rgba(139,92,246,.7); box-shadow: 0 0 0 3px rgba(139,92,246,.16); }
+  .chat-chips { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--borda); padding-top: 14px; margin-top: 4px; }
+  .chat-chip {
+    font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    background: var(--painel2); color: var(--texto); border: 1px solid var(--borda-2);
+    border-radius: 999px; padding: 8px 14px; transition: all .16s var(--ease);
+  }
+  .chat-chip:hover { border-color: var(--roxo-claro); color: var(--roxo-claro); }
+  .chat-chip.mini { font-size: 12px; padding: 6px 11px; font-weight: 500; }

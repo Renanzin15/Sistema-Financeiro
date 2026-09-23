@@ -14,6 +14,7 @@ let HIST = [];              // F3: lançamentos carregados do histórico
 let filtroHist = "tudo";   // F3: filtro ativo (tudo/entradas/saidas/caixinhas)
 let buscaHist = "";        // F3: termo de busca por descrição
 let CATEGORIAS = [];        // M2: categorias do usuário (pra auto-sugestão e orçamento)
+let APRENDIDO = {};         // M9: descrição normalizada -> categoria que você ensinou
 let orcMes = null;          // M2: mês em edição na tela Orçamento (AAAA-MM)
 // M2: palavra na descrição -> categoria provável (espelho do MAPA_PALAVRAS do back-end)
 const MAPA_CATEGORIA = {
@@ -57,7 +58,8 @@ const ICONES = {
   sino: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   cartaocred: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
   insight: '<line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>',
-  config: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
+  config: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -218,6 +220,7 @@ function sair() {
 async function carregarTudo() {
   await carregarBancos();
   await carregarCartoes();   // M5: CARTOES disponível antes de contas/assinaturas (usado nos selects "cobrar em")
+  pedir("/aprendizado-categoria").then(m => { APRENDIDO = m || {}; }).catch(() => {});  // M9: mapa aprendido
   // lança as entradas recorrentes cujo dia já chegou ANTES de calcular saldos/histórico
   try { await pedir("/entradas-recorrentes/gerar", { method: "POST" }); } catch (e) {}
   // carregarRecorrentes roda dentro de carregarContas (precisa de CONTAS já carregado p/ o vínculo de fatura)
@@ -1711,6 +1714,82 @@ function togglePrefMenu() {
   try { localStorage.setItem("sb_menu_oculto", on ? "1" : "0"); } catch (e) {}
 }
 
+// ===== M9: Assistente (chat por regras) =====
+let chatIniciado = false;
+function carregarAssistente() {
+  renderChatChips();
+  if (!chatIniciado) {
+    chatMsg("Oi! 👋 Sou seu assistente. Toque numa pergunta aqui embaixo e eu calculo a resposta na hora — direto dos seus dados.", "bot");
+    chatIniciado = true;
+  }
+}
+function chatMsg(texto, quem) {
+  const box = document.getElementById("chat-msgs");
+  if (!box) return null;
+  const div = document.createElement("div");
+  div.className = "chat-bolha " + quem;
+  div.innerHTML = texto;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div;
+}
+function renderChatChips() {
+  const el = document.getElementById("chat-chips");
+  if (!el) return;
+  el.innerHTML =
+    `<button class="chat-chip" onclick="perguntaDireta('sobra','Quanto sobra este mês?')">Quanto sobra?</button>` +
+    `<button class="chat-chip" onclick="perguntaDireta('resumo','Como foi o mês?')">Resumo do mês</button>` +
+    `<button class="chat-chip" onclick="perguntaDireta('pagar','Quanto tenho a pagar?')">Quanto tenho a pagar?</button>` +
+    `<button class="chat-chip" onclick="perguntaGastoCategoria()">Quanto gastei em…</button>` +
+    `<button class="chat-chip" onclick="perguntaPossoComprar()">Posso comprar?</button>`;
+}
+async function _responder(url, pensando) {
+  try { const r = await pedir(url); pensando.textContent = r.resposta; }
+  catch (e) { pensando.textContent = "Ops, não consegui calcular: " + e.message; }
+  document.getElementById("chat-msgs").scrollTop = 1e9;
+}
+async function perguntaDireta(q, label) {
+  chatMsg(label, "user");
+  await _responder("/assistente?q=" + q, chatMsg("…", "bot"));
+}
+function perguntaGastoCategoria() {
+  chatMsg("Quanto gastei em…", "user");
+  const cats = CATEGORIAS || [];
+  if (!cats.length) { chatMsg("Você ainda não tem categorias — crie na aba Categorias.", "bot"); return; }
+  const chips = cats.map(c => `<button class="chat-chip mini" onclick="respGastoCategoria('${escAttr(c.nome)}')">${c.nome}</button>`).join("");
+  chatMsg("De qual categoria?<div class='chat-opts'>" + chips + "</div>", "bot");
+}
+async function respGastoCategoria(cat) {
+  chatMsg(cat, "user");
+  await _responder("/assistente?q=gasto_categoria&categoria=" + encodeURIComponent(cat), chatMsg("…", "bot"));
+}
+function perguntaPossoComprar() {
+  chatMsg("Posso comprar?", "user");
+  const cartOpts = (CARTOES || []).map(k => `<option value="${k.id}">${k.nome}</option>`).join("");
+  chatMsg("Beleza! Qual o valor e como pretende pagar?" +
+    `<div class='chat-form'>
+      <input type="number" step="0.01" id="pc-valor" placeholder="R$ 0,00">
+      <select id="pc-cartao" onchange="document.getElementById('pc-parc').style.display=this.value?'':'none'">
+        <option value="">À vista</option>${cartOpts}
+      </select>
+      <input type="number" id="pc-parc" min="1" max="60" value="1" title="Parcelas" style="display:none">
+      <button class="acao pequeno" onclick="respPossoComprar()">Perguntar</button>
+    </div>`, "bot");
+}
+async function respPossoComprar() {
+  const valor = document.getElementById("pc-valor").value;
+  const cartao = document.getElementById("pc-cartao").value;
+  const parc = document.getElementById("pc-parc").value || "1";
+  if (!valor || parseFloat(valor) <= 0) return aviso("Informe o valor da compra.", "erro");
+  const centavos = paraCentavos(valor);
+  let url = "/assistente?q=posso_comprar&valor_centavos=" + centavos + "&parcelas=" + parseInt(parc);
+  let label = "Posso comprar algo de " + reais(centavos / 100);
+  if (cartao) { url += "&cartao_id=" + cartao; label += ` no cartão em ${parseInt(parc)}x?`; }
+  else label += " à vista?";
+  chatMsg(label, "user");
+  await _responder(url, chatMsg("…", "bot"));
+}
+
 // ===== M7: Insights / inteligência financeira (por regras) =====
 const INSIGHT_GRUPOS = [
   { tipo: "padrao", rot: "Padrões do seu gasto", ico: "analise" },
@@ -2027,7 +2106,15 @@ async function gastarCaixinha() {
 function sugerirCategoriaGasto() {
   const sel = document.getElementById("s-categoria");
   if (!sel || sel.dataset.tocado === "1") return;
-  const d = (document.getElementById("s-desc").value || "").toLowerCase();
+  const raw = (document.getElementById("s-desc").value || "");
+  // 1) M9: o que você JÁ ENSINOU pra essa descrição (tem prioridade)
+  const norm = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (norm && APRENDIDO[norm]) {
+    const catA = CATEGORIAS.find(c => c.nome.toLowerCase() === APRENDIDO[norm].toLowerCase());
+    if (catA) { sel.value = catA.nome; return; }
+  }
+  // 2) palavra-chave
+  const d = raw.toLowerCase();
   let alvo = null;
   for (const palavra in MAPA_CATEGORIA) { if (d.includes(palavra)) { alvo = MAPA_CATEGORIA[palavra]; break; } }
   if (!alvo) { sel.value = ""; return; }
@@ -2623,7 +2710,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", insights: "Insights", orcamento: "Orçamento", categorias: "Categorias", configuracoes: "Configurações", licencas: "Licenças", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", insights: "Insights", assistente: "Assistente", orcamento: "Orçamento", categorias: "Categorias", configuracoes: "Configurações", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
@@ -2639,6 +2726,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     if (tela === "cartoes") carregarCartoes();       // M5: cartões carregam ao abrir
     if (tela === "insights") carregarInsights();     // M7: insights carregam ao abrir
     if (tela === "configuracoes") carregarConfig();  // M8: config de alertas + preferências
+    if (tela === "assistente") carregarAssistente(); // M9: chat assistente
   });
 });
 
