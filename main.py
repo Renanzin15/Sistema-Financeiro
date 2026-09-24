@@ -482,6 +482,60 @@ def exigir_login(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
     _garantir_usuario(user_id)
     return user_id
 
+# ---- ADMIN (Mudança 11) ----
+# Gestão de usuários DENTRO do app. Usa a service_role key (chave mestra do Supabase) que fica
+# SÓ aqui no backend (env do Render), NUNCA no front. E confere que quem pede é o admin.
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+
+def _token_dados(cred):
+    if cred is None:
+        raise HTTPException(status_code=401, detail="Não autenticado.")
+    try:
+        return _verificar_token(cred.credentials)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Sessão inválida ou expirada.")
+
+def _eh_admin(dados):
+    email = (dados.get("email") or "").strip().lower()
+    return bool(ADMIN_EMAIL) and email == ADMIN_EMAIL
+
+# dependência: exige que o solicitante seja o admin (senão 403). Devolve o dados do token.
+def exigir_admin(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
+    dados = _token_dados(cred)
+    if not dados.get("sub"):
+        raise HTTPException(status_code=401, detail="Token sem usuário.")
+    if not _eh_admin(dados):
+        raise HTTPException(status_code=403, detail="Só o administrador pode fazer isso.")
+    if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
+        raise HTTPException(status_code=500, detail="Gestão de usuários não configurada no servidor (falta SUPABASE_SERVICE_ROLE_KEY).")
+    return dados
+
+def _supabase_admin(method, path, body=None):
+    """Chama a Admin API do Supabase (GoTrue) com a service_role key. Levanta HTTPException
+    com a mensagem do Supabase quando dá erro."""
+    import urllib.request, urllib.error
+    url = SUPABASE_URL + path
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY,
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            txt = r.read().decode()
+            return json.loads(txt) if txt else {}
+    except urllib.error.HTTPError as e:
+        try:
+            det = json.loads(e.read().decode())
+            msg = det.get("msg") or det.get("error_description") or det.get("error") or det.get("message") or str(e)
+        except Exception:
+            msg = f"Erro do Supabase ({e.code})."
+        raise HTTPException(status_code=400, detail=msg)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Não consegui falar com o Supabase agora.")
+
 criar_tabelas()
 
 # data de hoje no formato AAAA-MM-DD, usada ao gravar cada lançamento novo (F1)
@@ -2721,6 +2775,96 @@ def salvar_config_alertas(item: ConfigAlertasIn, user_id: str = Depends(exigir_l
     con.commit()
     con.close()
     return {"status": "config salva"}
+
+
+# ========================================================
+# ROTAS DE ADMIN / GESTÃO DE USUÁRIOS (Mudança 11)
+# ========================================================
+
+@app.get("/me")
+def quem_sou_eu(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
+    """Diz ao front quem está logado e se é admin (pra mostrar/ocultar a área de Usuários)."""
+    dados = _token_dados(cred)
+    if not dados.get("sub"):
+        raise HTTPException(status_code=401, detail="Token sem usuário.")
+    admin = _eh_admin(dados)
+    return {
+        "user_id": dados.get("sub"),
+        "email": dados.get("email"),
+        "is_admin": admin,
+        # avisa se o servidor está pronto pra gestão de usuários (evita botão que só dá erro)
+        "admin_pronto": bool(admin and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY),
+    }
+
+class NovoUsuario(BaseModel):
+    email: str
+    senha: str
+
+class ResetSenha(BaseModel):
+    senha: str
+
+def _fmt_usuario(u):
+    return {
+        "id": u.get("id"),
+        "email": u.get("email"),
+        "criado_em": u.get("created_at"),
+        "ultimo_login": u.get("last_sign_in_at"),
+        "confirmado": bool(u.get("email_confirmed_at")),
+        "bloqueado": bool(u.get("banned_until")),
+        "precisa_trocar_senha": bool((u.get("user_metadata") or {}).get("precisa_trocar_senha")),
+    }
+
+@app.get("/admin/usuarios")
+def listar_usuarios(dados: dict = Depends(exigir_admin)):
+    r = _supabase_admin("GET", "/auth/v1/admin/users?per_page=200")
+    users = r.get("users", r) if isinstance(r, dict) else r
+    lista = [_fmt_usuario(u) for u in (users or [])]
+    lista.sort(key=lambda x: (x["email"] or "").lower())
+    return {"usuarios": lista, "admin_email": ADMIN_EMAIL}
+
+@app.post("/admin/usuarios")
+def criar_usuario(item: NovoUsuario, dados: dict = Depends(exigir_admin)):
+    email = (item.email or "").strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="E-mail inválido.")
+    if len(item.senha or "") < 6:
+        raise HTTPException(status_code=400, detail="A senha temporária precisa ter ao menos 6 caracteres.")
+    novo = _supabase_admin("POST", "/auth/v1/admin/users", {
+        "email": email,
+        "password": item.senha,
+        "email_confirm": True,   # já confirmado: entra direto com a senha temporária
+        "user_metadata": {"precisa_trocar_senha": True},   # força trocar no 1º login
+    })
+    return {"status": "usuário criado", "usuario": _fmt_usuario(novo)}
+
+@app.post("/admin/usuarios/{uid}/resetar-senha")
+def resetar_senha(uid: str, item: ResetSenha, dados: dict = Depends(exigir_admin)):
+    if len(item.senha or "") < 6:
+        raise HTTPException(status_code=400, detail="A senha precisa ter ao menos 6 caracteres.")
+    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {
+        "password": item.senha,
+        "user_metadata": {"precisa_trocar_senha": True},   # ao resetar, força trocar no próximo login
+    })
+    return {"status": "senha resetada"}
+
+@app.post("/admin/usuarios/{uid}/bloquear")
+def bloquear_usuario(uid: str, dados: dict = Depends(exigir_admin)):
+    if uid == dados.get("sub"):
+        raise HTTPException(status_code=400, detail="Você não pode bloquear a si mesmo.")
+    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"ban_duration": "876000h"})  # ~100 anos
+    return {"status": "usuário bloqueado"}
+
+@app.post("/admin/usuarios/{uid}/desbloquear")
+def desbloquear_usuario(uid: str, dados: dict = Depends(exigir_admin)):
+    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"ban_duration": "none"})
+    return {"status": "usuário desbloqueado"}
+
+@app.delete("/admin/usuarios/{uid}")
+def apagar_usuario(uid: str, dados: dict = Depends(exigir_admin)):
+    if uid == dados.get("sub"):
+        raise HTTPException(status_code=400, detail="Você não pode apagar a si mesmo.")
+    _supabase_admin("DELETE", f"/auth/v1/admin/users/{uid}")
+    return {"status": "usuário apagado"}
 
 
 # ========================================================

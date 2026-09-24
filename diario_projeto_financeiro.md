@@ -2151,3 +2151,29 @@ o flag → tela "Bem-vindo! Defina sua senha"; validações (mín. 6 / não conf
 Configurações tem "Segurança" e valida; link "Esqueci" presente; link de recuperação (`#type=recovery`)
 em load fresco abre "Redefina sua senha" com o token do hash. Zero erros de console. (Ponta a ponta real
 — troca de senha e e-mail — depende da config do Supabase acima.)
+
+## Etapa 40 — Gestão de usuários pelo app (admin) (Mudança 11) (23/09/2026)
+
+Pedido: gerir usuários por dentro do sistema (hierarquia admin × usuário), sem visitar o Supabase.
+O admin cria/reseta senha/bloqueia/apaga; usuário comum vê tudo, menos a área de Usuários.
+
+**Segurança:** operações de admin usam a **service_role key** do Supabase (chave mestra) que fica SÓ no
+backend (env `SUPABASE_SERVICE_ROLE_KEY`), nunca no front. O backend confere a cada chamada que o
+solicitante é o admin: `ADMIN_EMAIL` (env) comparado ao claim `email` do JWT.
+
+**Backend (`main.py`):** `exigir_admin` (403 se não for o admin; 500 se faltar service key), `_supabase_admin`
+(chama a Admin API do GoTrue com a service_role, trata erros). Rotas: `GET /me` (diz `is_admin`/`admin_pronto`
+pro front mostrar a área), `GET /admin/usuarios` (lista), `POST /admin/usuarios` (cria com `email_confirm:true`
++ `user_metadata.precisa_trocar_senha:true` → força trocar no 1º login), `POST /admin/usuarios/{id}/resetar-senha`
+(nova senha + flag), `POST .../bloquear` e `.../desbloquear` (via `ban_duration`), `DELETE /admin/usuarios/{id}`.
+Admin não pode bloquear/apagar a si mesmo.
+
+**Front (`index.html`+`app.js`):** item de menu "Usuários" (ícone `usuarios`) que só aparece pro admin
+(`/me` no `carregarTudo` liga/desliga). Tela: lista (e-mail, último acesso, tags admin/bloqueado/trocar
+senha) com ações (resetar/bloquear/desbloquear/apagar, com confirmação) + form "Novo usuário". Se o
+servidor não tiver service key, mostra aviso amigável em vez de erro.
+
+**Testado:** 8/8 na autorização (SQLite) — admin detectado pelo e-mail, não-admin 403, admin sem key 500,
+sem token 401. **Navegador:** admin vê o menu e a tela (com aviso de "não configurado" sem key local);
+não-admin não vê o menu; zero erros de console. As operações reais (criar/resetar/etc.) dependem de
+configurar no Render: `SUPABASE_SERVICE_ROLE_KEY` + `ADMIN_EMAIL` (a fazer, com guia pela extensão).

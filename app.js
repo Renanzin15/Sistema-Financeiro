@@ -15,6 +15,8 @@ let filtroHist = "tudo";   // F3: filtro ativo (tudo/entradas/saidas/caixinhas)
 let buscaHist = "";        // F3: termo de busca por descrição
 let CATEGORIAS = [];        // M2: categorias do usuário (pra auto-sugestão e orçamento)
 let APRENDIDO = {};         // M9: descrição normalizada -> categoria que você ensinou
+let IS_ADMIN = false;       // M11: se o usuário logado é o admin
+let ADMIN_PRONTO = false;   // M11: se o servidor tem service_role key configurada
 let orcMes = null;          // M2: mês em edição na tela Orçamento (AAAA-MM)
 // M2: palavra na descrição -> categoria provável (espelho do MAPA_PALAVRAS do back-end)
 const MAPA_CATEGORIA = {
@@ -59,7 +61,8 @@ const ICONES = {
   cartaocred: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
   insight: '<line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>',
   config: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
-  chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>'
+  chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+  usuarios: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
 };
 function ico(nome, size) {
   size = size || 16;
@@ -319,10 +322,96 @@ async function trocarSenha() {
   } catch (e) { aviso(e.message, "erro"); }
 }
 
+// ===== M11: Usuários (admin) =====
+function fmtDataHora(iso) {
+  if (!iso) return "—";
+  try { const d = new Date(iso); return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); }
+  catch (e) { return "—"; }
+}
+async function carregarUsuarios() {
+  const el = document.getElementById("lista-usuarios");
+  const aviso_ = document.getElementById("usuarios-aviso");
+  if (!el) return;
+  if (!ADMIN_PRONTO) {
+    aviso_.innerHTML = '<div class="vazio" style="text-align:left;padding:12px 0">A gestão de usuários ainda não está configurada no servidor (falta a <b>service_role key</b> no Render). Assim que configurar, esta tela funciona.</div>';
+    el.innerHTML = "";
+    return;
+  }
+  aviso_.innerHTML = "";
+  el.innerHTML = '<div class="sub" style="padding:8px 0">Carregando…</div>';
+  let d;
+  try { d = await pedir("/admin/usuarios"); } catch (e) { el.innerHTML = '<div class="vazio" style="text-align:left">' + e.message + '</div>'; return; }
+  const admEmail = (d.admin_email || "").toLowerCase();
+  if (!d.usuarios.length) { el.innerHTML = '<div class="vazio">Nenhum usuário.</div>'; return; }
+  el.innerHTML = d.usuarios.map(u => {
+    const souEu = (u.email || "").toLowerCase() === admEmail;
+    const tags = [];
+    if (souEu) tags.push('<span class="fatura-tag paga">admin</span>');
+    if (u.bloqueado) tags.push('<span class="fatura-tag" style="color:var(--vermelho);background:var(--vermelho-fundo)">bloqueado</span>');
+    if (u.precisa_trocar_senha) tags.push('<span class="fatura-tag aberta">trocar senha</span>');
+    const acoes = souEu ? '<span class="sub">(você)</span>' : `
+      <button class="perigo" onclick="resetarSenhaUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Resetar senha</button>
+      ${u.bloqueado
+        ? `<button class="perigo" onclick="setBloqueioUsuario('${escAttr(u.id)}','${escAttr(u.email)}',false)">Desbloquear</button>`
+        : `<button class="perigo" onclick="setBloqueioUsuario('${escAttr(u.id)}','${escAttr(u.email)}',true)">Bloquear</button>`}
+      <button class="perigo" style="color:var(--vermelho)" onclick="apagarUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Apagar</button>`;
+    return `<div class="item" style="align-items:flex-start;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;width:100%;gap:8px;align-items:center">
+        <div style="min-width:0"><div class="nome" style="word-break:break-all">${u.email || "(sem e-mail)"} ${tags.join(" ")}</div>
+        <div class="sub">último acesso: ${fmtDataHora(u.ultimo_login)}</div></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${acoes}</div>
+    </div>`;
+  }).join("");
+}
+async function criarUsuario() {
+  const email = document.getElementById("us-email").value.trim();
+  const senha = document.getElementById("us-senha").value;
+  if (!email || !email.includes("@")) return aviso("Informe um e-mail válido.", "erro");
+  if (senha.length < 6) return aviso("A senha temporária precisa ter ao menos 6 caracteres.", "erro");
+  try {
+    await pedir("/admin/usuarios", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, senha }) });
+    document.getElementById("us-email").value = ""; document.getElementById("us-senha").value = "";
+    aviso("Usuário criado. Passe a senha temporária pra pessoa.", "ok");
+    carregarUsuarios();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function resetarSenhaUsuario(id, email) {
+  const nova = prompt("Nova senha temporária para " + email + " (mín. 6):");
+  if (nova == null) return;
+  if (nova.length < 6) return aviso("A senha precisa ter ao menos 6 caracteres.", "erro");
+  try {
+    await pedir(`/admin/usuarios/${id}/resetar-senha`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senha: nova }) });
+    aviso("Senha resetada. A pessoa troca no próximo login.", "ok");
+    carregarUsuarios();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function setBloqueioUsuario(id, email, bloquear) {
+  const rota = bloquear ? "bloquear" : "desbloquear";
+  if (!(await confirmar({ titulo: (bloquear ? "Bloquear " : "Desbloquear ") + email + "?", texto: bloquear ? "A pessoa não conseguirá entrar até você desbloquear." : "A pessoa volta a conseguir entrar.", rotulo: bloquear ? "Bloquear" : "Desbloquear", icone: "alerta" }))) return;
+  try {
+    await pedir(`/admin/usuarios/${id}/${rota}`, { method: "POST" });
+    aviso(bloquear ? "Usuário bloqueado." : "Usuário desbloqueado.", "ok");
+    carregarUsuarios();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function apagarUsuario(id, email) {
+  if (!(await confirmar({ titulo: "Apagar " + email + "?", texto: "Isso remove a conta e TODOS os dados dessa pessoa no Supabase. Não dá pra desfazer.", rotulo: "Apagar", icone: "apagar" }))) return;
+  try {
+    await pedir(`/admin/usuarios/${id}`, { method: "DELETE" });
+    aviso("Usuário apagado.", "ok");
+    carregarUsuarios();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
 async function carregarTudo() {
   await carregarBancos();
   await carregarCartoes();   // M5: CARTOES disponível antes de contas/assinaturas (usado nos selects "cobrar em")
   pedir("/aprendizado-categoria").then(m => { APRENDIDO = m || {}; }).catch(() => {});  // M9: mapa aprendido
+  pedir("/me").then(m => {   // M11: mostra a área de Usuários só pro admin
+    IS_ADMIN = !!m.is_admin; ADMIN_PRONTO = !!m.admin_pronto;
+    const mi = document.getElementById("menu-usuarios"); if (mi) mi.style.display = IS_ADMIN ? "" : "none";
+  }).catch(() => {});
   // lança as entradas recorrentes cujo dia já chegou ANTES de calcular saldos/histórico
   try { await pedir("/entradas-recorrentes/gerar", { method: "POST" }); } catch (e) {}
   // carregarRecorrentes roda dentro de carregarContas (precisa de CONTAS já carregado p/ o vínculo de fatura)
@@ -2812,7 +2901,7 @@ async function confirmarOcrConta() {
 }
 
 // troca de telas pelo menu lateral
-const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", insights: "Insights", assistente: "Assistente", orcamento: "Orçamento", categorias: "Categorias", configuracoes: "Configurações", licencas: "Licenças", importar: "Importar" };
+const titulos = { dashboard: "Visão geral", caixinhas: "Caixinhas", contas: "Dívidas", cartoes: "Cartões", historico: "Histórico", analise: "Análise", previsao: "Previsão", comparar: "Comparar", insights: "Insights", assistente: "Assistente", orcamento: "Orçamento", categorias: "Categorias", usuarios: "Usuários", configuracoes: "Configurações", licencas: "Licenças", importar: "Importar" };
 document.querySelectorAll(".item-menu").forEach(item => {
   item.addEventListener("click", () => {
     const tela = item.dataset.tela;
@@ -2828,6 +2917,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     if (tela === "cartoes") carregarCartoes();       // M5: cartões carregam ao abrir
     if (tela === "insights") carregarInsights();     // M7: insights carregam ao abrir
     if (tela === "configuracoes") carregarConfig();  // M8: config de alertas + preferências
+    if (tela === "usuarios") carregarUsuarios();     // M11: gestão de usuários (admin)
     if (tela === "assistente") carregarAssistente(); // M9: chat assistente
   });
 });

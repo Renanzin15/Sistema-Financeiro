@@ -48,6 +48,7 @@
   <button class="item-menu" data-tela="assistente"><span class="ico" data-ico="chat" data-ico-size="19"></span><span>Assistente</span></button>
   <button class="item-menu" data-tela="orcamento"><span class="ico" data-ico="orcamento" data-ico-size="19"></span><span>Orçamento</span></button>
   <button class="item-menu" data-tela="categorias"><span class="ico" data-ico="categoria" data-ico-size="19"></span><span>Categorias</span></button>
+  <button class="item-menu" data-tela="usuarios" id="menu-usuarios" style="display:none"><span class="ico" data-ico="usuarios" data-ico-size="19"></span><span>Usuários</span></button>
   <button class="item-menu" data-tela="configuracoes"><span class="ico" data-ico="config" data-ico-size="19"></span><span>Configurações</span></button>
   <button class="item-menu" data-tela="licencas"><span class="ico" data-ico="licenca" data-ico-size="19"></span><span>Licenças</span></button>
   <button class="item-menu" data-tela="importar"><span class="ico" data-ico="importar" data-ico-size="19"></span><span>Importar</span></button>
@@ -381,6 +382,29 @@
         Clique aqui ou arraste uma <b>foto</b> ou <b>PDF</b> da conta
       </div>
       <div id="ocr-preview"></div>
+    </div>
+  </section>
+
+  <!-- USUÁRIOS (admin — Mudança 11) -->
+  <section class="tela" id="usuarios">
+    <div class="paineis">
+      <div>
+        <div class="painel">
+          <h2>Usuários 👥</h2>
+          <div class="sub" style="margin-bottom:14px">Área do administrador. Cada usuário tem os dados totalmente isolados. Ao criar, a pessoa entra com a senha temporária e é obrigada a trocá-la no 1º login.</div>
+          <div id="usuarios-aviso"></div>
+          <div id="lista-usuarios"></div>
+        </div>
+      </div>
+      <div>
+        <div class="painel">
+          <h2>Novo usuário</h2>
+          <div class="campo"><label>E-mail</label><input id="us-email" type="email" placeholder="pessoa@email.com"></div>
+          <div class="campo"><label>Senha temporária</label><input id="us-senha" type="text" placeholder="mín. 6 caracteres"></div>
+          <button class="acao" onclick="criarUsuario()">Criar usuário</button>
+          <div class="sub" style="margin-top:12px">Anote e passe a senha temporária pra pessoa — ela troca no primeiro acesso.</div>
+        </div>
+      </div>
     </div>
   </section>
 
