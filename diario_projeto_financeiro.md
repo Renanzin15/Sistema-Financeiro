@@ -2123,3 +2123,31 @@ na PRÓPRIA transação com try/except — um erro/timeout é apenas logado e PU
 DDL é idempotente), então o app sobe mesmo assim. Adicionado `SET lock_timeout='3000ms'` (lock preso falha
 rápido) e método `rollback()` no `_ConexaoPG`. Testado no SQLite (import OK; comparar/insights/assistente/
 orcamento = 200). Junto vai o fix do `%` literal (`54da171`).
+
+## Etapa 39 — Senha: trocar no 1º login + esqueci a senha (Mudança 10) (23/09/2026)
+
+Pedido do Renan. Cadastro fica FECHADO (ele cria as contas com senha temporária), então: 1º login força
+definir senha + recuperação por e-mail + trocar senha em Configurações. Mínimo 6 (padrão Supabase). Tudo
+via Supabase Auth (GoTrue) no front — a senha nunca passa pelo nosso backend. Sem backend novo, sem DB.
+
+**Front (`index.html`+`app.js`):** tela `#tela-nova-senha` (reusada pra 1º login e recuperação) + link
+"Esqueci minha senha" no login + painel "Segurança 🔒" em Configurações (trocar senha). JS: `_jwtPayload`
+/`_precisaTrocarSenha` (lê `user_metadata.precisa_trocar_senha` do JWT), `entrarApp` (entra OU força
+definir senha), `iniciar` agora detecta o link de recuperação (`#type=recovery&access_token=...`) antes de
+tudo, `atualizarSenhaSupabase` (PUT /auth/v1/user com o token + apikey), `abrirNovaSenha`/`salvarNovaSenha`
+(no 1º login grava `precisa_trocar_senha:false`; na recuperação limpa o hash da URL), `esqueciSenha`
+(POST /auth/v1/recover), `trocarSenha` (Configurações). `sair` também esconde a tela de nova senha.
+
+**Como o 1º login sabe que é o 1º:** flag `precisa_trocar_senha:true` no `user_metadata` do usuário. O
+Renan (admin) seta esse flag ao criar a conta no Supabase; quem não tem o flag (usuários já existentes)
+não é incomodado. Depois de definir a senha, o app marca o flag como false.
+
+**DEPENDE de config no Supabase (a fazer no painel):** (1) pro "esqueci a senha": e-mail ativo + a URL do
+site nas **Redirect URLs**/Site URL (senão o link de recuperação não volta pro site); (2) pro 1º login:
+criar o usuário já com `user_metadata {"precisa_trocar_senha": true}`. Vou guiar pela extensão do Chrome.
+
+**Testado (navegador, com as chamadas ao Supabase STUBADAS pra não mexer em conta real):** 1º login com
+o flag → tela "Bem-vindo! Defina sua senha"; validações (mín. 6 / não confere); sucesso marca o flag;
+Configurações tem "Segurança" e valida; link "Esqueci" presente; link de recuperação (`#type=recovery`)
+em load fresco abre "Redefina sua senha" com o token do hash. Zero erros de console. (Ponta a ponta real
+— troca de senha e e-mail — depende da config do Supabase acima.)

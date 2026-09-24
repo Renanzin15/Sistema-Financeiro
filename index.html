@@ -17,6 +17,20 @@
     <div class="campo"><label>Senha</label><input id="login-senha" type="password" autocomplete="current-password" placeholder="sua senha" onkeydown="if(event.key==='Enter')enviarLogin()"></div>
     <button class="acao" style="width:100%;margin-top:6px" onclick="enviarLogin()" id="login-botao">Entrar</button>
     <div id="login-erro" style="font-size:13px;color:var(--vermelho);text-align:center;margin-top:12px;min-height:18px"></div>
+    <div style="text-align:center;margin-top:8px"><a href="#" onclick="esqueciSenha();return false" style="font-size:12.5px;color:var(--roxo-claro);text-decoration:none">Esqueci minha senha</a></div>
+  </div>
+</div>
+
+<!-- M10: definir nova senha (1º login forçado OU recuperação por e-mail) -->
+<div id="tela-nova-senha" style="position:fixed;inset:0;background:var(--fundo);z-index:1001;display:none;align-items:center;justify-content:center;flex-direction:column;padding:20px">
+  <div style="background:var(--painel);border:1px solid var(--borda);border-radius:16px;padding:32px;width:100%;max-width:360px">
+    <div style="font-size:18px;font-weight:700;letter-spacing:0.1em;color:var(--roxo-claro);text-transform:uppercase;text-align:center;margin-bottom:6px">Orçamento</div>
+    <div id="ns-titulo" style="font-size:15px;font-weight:600;color:var(--texto);text-align:center;margin-bottom:6px">Defina uma nova senha</div>
+    <div style="font-size:12.5px;color:var(--texto2);text-align:center;margin-bottom:20px">Mínimo de 6 caracteres.</div>
+    <div class="campo"><label>Nova senha</label><input id="ns-senha" type="password" autocomplete="new-password" placeholder="nova senha"></div>
+    <div class="campo"><label>Confirmar senha</label><input id="ns-senha2" type="password" autocomplete="new-password" placeholder="repita a senha" onkeydown="if(event.key==='Enter')salvarNovaSenha()"></div>
+    <button class="acao" style="width:100%;margin-top:6px" onclick="salvarNovaSenha()" id="ns-botao">Salvar senha</button>
+    <div id="ns-erro" style="font-size:13px;color:var(--vermelho);text-align:center;margin-top:12px;min-height:18px"></div>
   </div>
 </div>
 
@@ -409,6 +423,15 @@
         <button class="acao" onclick="criarEntradaRecorrente()">Adicionar</button>
       </div>
       <div id="lista-entradas-rec" style="margin-top:14px"></div>
+    </div>
+    <div class="painel">
+      <h2>Segurança 🔒</h2>
+      <div class="sub" style="margin-bottom:12px">Troque sua senha quando quiser. Você continua logado; a senha é guardada com segurança pelo Supabase (a gente nunca vê nem guarda ela).</div>
+      <div class="campo-duplo">
+        <div class="campo"><label>Nova senha</label><input id="cfg-senha" type="password" autocomplete="new-password" placeholder="mín. 6 caracteres"></div>
+        <div class="campo"><label>Confirmar nova senha</label><input id="cfg-senha2" type="password" autocomplete="new-password" placeholder="repita a senha" onkeydown="if(event.key==='Enter')trocarSenha()"></div>
+      </div>
+      <button class="acao" onclick="trocarSenha()">Trocar senha</button>
     </div>
     <div class="painel">
       <h2>Preferências ⚙️</h2>

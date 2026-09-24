@@ -161,15 +161,43 @@ async function pedir(rota, opcoes) {
 }
 
 // ---- login (Supabase Auth) ----
+// M10: lê o payload do JWT (pra saber se precisa trocar senha no 1º login)
+function _jwtPayload(token) {
+  try { return JSON.parse(atob((token.split(".")[1] || "").replace(/-/g, "+").replace(/_/g, "/"))); }
+  catch (e) { return {}; }
+}
+function _precisaTrocarSenha(token) {
+  const md = (_jwtPayload(token).user_metadata) || {};
+  return md.precisa_trocar_senha === true;
+}
+// entra no app OU força a definição de senha no 1º login
+function entrarApp() {
+  if (TOKEN && _precisaTrocarSenha(TOKEN)) {
+    document.getElementById("tela-login").style.display = "none";
+    abrirNovaSenha("primeiro");
+    return;
+  }
+  document.getElementById("tela-login").style.display = "none";
+  const ns = document.getElementById("tela-nova-senha"); if (ns) ns.style.display = "none";
+  carregarTudo();
+}
+
 async function iniciar() {
+  // M10: veio do link de recuperação de senha? (#access_token=...&type=recovery)
+  const hp = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+  if (hp.get("type") === "recovery" && hp.get("access_token")) {
+    TOKEN = hp.get("access_token");
+    document.getElementById("tela-login").style.display = "none";
+    abrirNovaSenha("recuperacao");
+    return;
+  }
   // reaproveita um token salvo (sessão anterior); se ainda for válido, entra direto
   const salvo = localStorage.getItem("sb_token");
   if (salvo) {
     TOKEN = salvo;
     try {
       await pedir("/saldo-livre");   // valida o token com o back
-      document.getElementById("tela-login").style.display = "none";
-      carregarTudo();
+      entrarApp();
       return;
     } catch (e) { TOKEN = null; localStorage.removeItem("sb_token"); }
   }
@@ -199,9 +227,8 @@ async function enviarLogin() {
     }
     TOKEN = dado.access_token;
     localStorage.setItem("sb_token", TOKEN);
-    document.getElementById("tela-login").style.display = "none";
     document.getElementById("login-senha").value = "";
-    carregarTudo();
+    entrarApp();   // M10: entra OU força trocar senha no 1º login
   } catch (e) {
     erro.textContent = "Erro ao conectar. Tente de novo.";
   } finally {
@@ -212,9 +239,84 @@ async function enviarLogin() {
 function sair() {
   TOKEN = null;
   localStorage.removeItem("sb_token");
+  const ns = document.getElementById("tela-nova-senha"); if (ns) ns.style.display = "none";
   document.getElementById("tela-login").style.display = "flex";
   document.getElementById("login-senha").value = "";
   const el = document.getElementById("login-email"); if (el) el.focus();
+}
+
+// ===== M10: senha (Supabase Auth) =====
+// PUT /auth/v1/user — troca a senha (e opcionalmente grava metadados como o flag do 1º login).
+async function atualizarSenhaSupabase(novaSenha, extraData) {
+  const body = { password: novaSenha };
+  if (extraData) body.data = extraData;
+  const resp = await fetch(SUPABASE_URL + "/auth/v1/user", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + TOKEN },
+    body: JSON.stringify(body)
+  });
+  const dado = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(dado.msg || dado.error_description || dado.error || "Não deu pra salvar a senha.");
+  return dado;
+}
+let novaSenhaModo = "primeiro";   // "primeiro" (1º login) ou "recuperacao" (link do e-mail)
+function abrirNovaSenha(modo) {
+  novaSenhaModo = modo;
+  const t = document.getElementById("ns-titulo");
+  if (t) t.textContent = modo === "recuperacao" ? "Redefina sua senha" : "Bem-vindo! Defina sua senha";
+  ["ns-senha", "ns-senha2"].forEach(i => { const e = document.getElementById(i); if (e) e.value = ""; });
+  document.getElementById("ns-erro").textContent = "";
+  document.getElementById("tela-nova-senha").style.display = "flex";
+  const s = document.getElementById("ns-senha"); if (s) s.focus();
+}
+async function salvarNovaSenha() {
+  const s1 = document.getElementById("ns-senha").value;
+  const s2 = document.getElementById("ns-senha2").value;
+  const erro = document.getElementById("ns-erro");
+  erro.textContent = "";
+  if (s1.length < 6) { erro.textContent = "A senha precisa ter ao menos 6 caracteres."; return; }
+  if (s1 !== s2) { erro.textContent = "As senhas não conferem."; return; }
+  const botao = document.getElementById("ns-botao"); botao.disabled = true; botao.textContent = "Salvando...";
+  try {
+    // no 1º login, também marca que a senha já foi definida (não força de novo)
+    await atualizarSenhaSupabase(s1, novaSenhaModo === "primeiro" ? { precisa_trocar_senha: false } : null);
+    document.getElementById("tela-nova-senha").style.display = "none";
+    if (novaSenhaModo === "recuperacao") {
+      // limpa o token de recuperação da URL; a sessão atual já está válida
+      try { localStorage.setItem("sb_token", TOKEN); } catch (e) {}
+      history.replaceState(null, "", window.location.pathname);
+    }
+    carregarTudo();
+  } catch (e) { erro.textContent = e.message; }
+  finally { botao.disabled = false; botao.textContent = "Salvar senha"; }
+}
+async function esqueciSenha() {
+  const email = document.getElementById("login-email").value.trim();
+  const erro = document.getElementById("login-erro");
+  if (!email) { erro.style.color = "var(--vermelho)"; erro.textContent = "Digite seu e-mail acima e clique de novo em 'Esqueci minha senha'."; return; }
+  try {
+    await fetch(SUPABASE_URL + "/auth/v1/recover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
+      body: JSON.stringify({ email })
+    });
+    erro.style.color = "var(--verde)";
+    erro.textContent = "Se o e-mail existir, enviamos um link de recuperação. Olhe a caixa de entrada (e o spam).";
+  } catch (e) {
+    erro.style.color = "var(--vermelho)";
+    erro.textContent = "Erro ao enviar. Tente de novo.";
+  }
+}
+async function trocarSenha() {
+  const s1 = document.getElementById("cfg-senha").value;
+  const s2 = document.getElementById("cfg-senha2").value;
+  if (s1.length < 6) return aviso("A senha precisa ter ao menos 6 caracteres.", "erro");
+  if (s1 !== s2) return aviso("As senhas não conferem.", "erro");
+  try {
+    await atualizarSenhaSupabase(s1);
+    document.getElementById("cfg-senha").value = ""; document.getElementById("cfg-senha2").value = "";
+    aviso("Senha trocada com sucesso.", "ok");
+  } catch (e) { aviso(e.message, "erro"); }
 }
 
 async function carregarTudo() {
