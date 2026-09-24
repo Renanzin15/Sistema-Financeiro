@@ -2112,3 +2112,14 @@ como formatação → estourava (só no Postgres; no SQLite não, por isso passo
 o padrão como PARÂMETRO: `NOT LIKE ?`, ("transferência%"). Regra pra frente: nunca deixar `%` literal em
 SQL com parâmetros — sempre no valor. Testado no SQLite (comparar/insights/assistente = 200; saiu ignora
 transferência/alocação). Obs.: instalei psycopg2-binary local só pra diagnóstico.
+
+**Correção CRÍTICA de deploy (23/09/2026):** os deploys de `f522d52` e `54da171` estavam FALHANDO no
+Render (Failed deploy) — por isso os fixes anteriores não subiam e Comparar/Insights/chat seguiam com 500.
+Causa (vista no log do Render): no boot, `criar_tabelas()` roda o DDL no Postgres e uma instrução dava
+`psycopg2.errors.QueryCanceled: canceling statement due to statement timeout` → o import do `main.py`
+crashava → "Exited with status 1" → deploy falha. Provável lock em ALTER/CREATE INDEX enquanto a instância
+antiga ainda atendia (comum no free). Correção: no bloco Postgres de `criar_tabelas`, cada DDL agora roda
+na PRÓPRIA transação com try/except — um erro/timeout é apenas logado e PULADO (o schema já existe em prod,
+DDL é idempotente), então o app sobe mesmo assim. Adicionado `SET lock_timeout='3000ms'` (lock preso falha
+rápido) e método `rollback()` no `_ConexaoPG`. Testado no SQLite (import OK; comparar/insights/assistente/
+orcamento = 200). Junto vai o fix do `%` literal (`54da171`).

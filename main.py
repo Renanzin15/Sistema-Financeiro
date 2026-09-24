@@ -158,6 +158,8 @@ class _ConexaoPG:
         return cur
     def commit(self):
         self._con.commit()
+    def rollback(self):
+        self._con.rollback()
     def close(self):
         self._con.close()
 
@@ -178,9 +180,25 @@ def criar_tabelas():
     con = conectar()
     # No Postgres a DDL já cria o schema completo (com todas as colunas); semeia e sai.
     if USA_POSTGRES:
+        # Resiliência de boot: cada DDL roda na sua própria transação e um erro/timeout NÃO
+        # derruba o app. Em produção o schema já existe (DDL é idempotente / IF NOT EXISTS),
+        # então um ALTER/CREATE INDEX que espere por lock e estoure o statement_timeout do
+        # Supabase é apenas ignorado — senão o deploy inteiro falha no import (o app nem sobe).
+        # lock_timeout curto faz um lock preso falhar rápido em vez de esperar o timeout todo.
+        try:
+            con.execute("SET lock_timeout = '3000ms'")
+            con.commit()
+        except Exception:
+            try: con.rollback()
+            except Exception: pass
         for ddl in DDL_POSTGRES:
-            con.execute(ddl)
-        con.commit()
+            try:
+                con.execute(ddl)
+                con.commit()
+            except Exception as e:
+                try: con.rollback()
+                except Exception: pass
+                print(f"[criar_tabelas] DDL pulado ({type(e).__name__}): {str(e)[:140]}")
         con.close()
         migrar()
         return
