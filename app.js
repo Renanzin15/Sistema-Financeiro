@@ -186,12 +186,13 @@ function entrarApp() {
 }
 
 async function iniciar() {
-  // M10: veio do link de recuperação de senha? (#access_token=...&type=recovery)
+  // M10/M11: veio de um link do Supabase? recuperação de senha OU convite (Send invitation)
   const hp = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
-  if (hp.get("type") === "recovery" && hp.get("access_token")) {
+  const tipoLink = hp.get("type");
+  if ((tipoLink === "recovery" || tipoLink === "invite") && hp.get("access_token")) {
     TOKEN = hp.get("access_token");
     document.getElementById("tela-login").style.display = "none";
-    abrirNovaSenha("recuperacao");
+    abrirNovaSenha(tipoLink === "invite" ? "convite" : "recuperacao");
     return;
   }
   // reaproveita um token salvo (sessão anterior); se ainda for válido, entra direto
@@ -262,11 +263,12 @@ async function atualizarSenhaSupabase(novaSenha, extraData) {
   if (!resp.ok) throw new Error(dado.msg || dado.error_description || dado.error || "Não deu pra salvar a senha.");
   return dado;
 }
-let novaSenhaModo = "primeiro";   // "primeiro" (1º login) ou "recuperacao" (link do e-mail)
+let novaSenhaModo = "primeiro";   // "primeiro" (1º login), "recuperacao" (esqueci) ou "convite" (invite)
+const _NS_TITULOS = { recuperacao: "Redefina sua senha", convite: "Bem-vindo! Crie sua senha", primeiro: "Bem-vindo! Defina sua senha" };
 function abrirNovaSenha(modo) {
   novaSenhaModo = modo;
   const t = document.getElementById("ns-titulo");
-  if (t) t.textContent = modo === "recuperacao" ? "Redefina sua senha" : "Bem-vindo! Defina sua senha";
+  if (t) t.textContent = _NS_TITULOS[modo] || _NS_TITULOS.primeiro;
   ["ns-senha", "ns-senha2"].forEach(i => { const e = document.getElementById(i); if (e) e.value = ""; });
   document.getElementById("ns-erro").textContent = "";
   document.getElementById("tela-nova-senha").style.display = "flex";
@@ -284,8 +286,8 @@ async function salvarNovaSenha() {
     // no 1º login, também marca que a senha já foi definida (não força de novo)
     await atualizarSenhaSupabase(s1, novaSenhaModo === "primeiro" ? { precisa_trocar_senha: false } : null);
     document.getElementById("tela-nova-senha").style.display = "none";
-    if (novaSenhaModo === "recuperacao") {
-      // limpa o token de recuperação da URL; a sessão atual já está válida
+    if (novaSenhaModo === "recuperacao" || novaSenhaModo === "convite") {
+      // veio de um link (e-mail): guarda a sessão e limpa o token da URL
       try { localStorage.setItem("sb_token", TOKEN); } catch (e) {}
       history.replaceState(null, "", window.location.pathname);
     }
