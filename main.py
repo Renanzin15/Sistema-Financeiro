@@ -1856,56 +1856,44 @@ def listar_contas(user_id: str = Depends(exigir_login)):
     con.close()
     return resultado
 
-@app.post("/contas/{conta_id}/pagar")
-def pagar_conta(conta_id: int, item: PagamentoConta, user_id: str = Depends(exigir_login)):
-    con = conectar()
-
-    # a conta existe?
+def _pagar_conta(con, user_id, conta_id, caixinha_id):
+    """Núcleo do pagamento de conta (sai de uma caixinha). NÃO faz commit/close — quem chama gerencia."""
     conta = con.execute(
         "SELECT id, valor_centavos, paga, tipo_conta, nome FROM contas WHERE id=? AND user_id=?", (conta_id, user_id)
     ).fetchone()
     if conta is None:
-        con.close()
         raise HTTPException(status_code=404, detail="Essa conta não existe.")
-
-    # já foi paga?
     if conta[2] == 1:
-        con.close()
         raise HTTPException(status_code=400, detail="Essa conta já foi paga.")
-
-    # valor a pagar = o que FALTA (total menos o que já foi pago em parciais)
     total = total_conta(con, user_id, conta_id, conta[3] or "simples", conta[1])
     if total <= 0:
-        con.close()
         raise HTTPException(status_code=400, detail="Essa fatura não tem itens para pagar.")
     valor = total - total_pago_conta(con, user_id, conta_id)
     if valor <= 0:
-        con.close()
         raise HTTPException(status_code=400, detail="Essa conta já está quitada.")
-
-    # a caixinha é do usuário e tem saldo suficiente?
-    if con.execute("SELECT id FROM caixinhas WHERE id=? AND user_id=?", (item.caixinha_id, user_id)).fetchone() is None:
-        con.close()
+    if con.execute("SELECT id FROM caixinhas WHERE id=? AND user_id=?", (caixinha_id, user_id)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Caixinha não encontrada.")
-    if saldo_da_caixinha(con, user_id, item.caixinha_id) < valor:
-        con.close()
+    if saldo_da_caixinha(con, user_id, caixinha_id) < valor:
         raise HTTPException(status_code=400, detail="Saldo insuficiente nessa caixinha.")
-
-    # tira o dinheiro da caixinha (pagamento) — a descrição carrega o NOME da conta
-    # pra ficar claro no histórico o que foi pago (ex.: "Pagamento: Conta de luz").
-    # conta_paga_id liga o pagamento à conta (base do cálculo de "quanto já foi pago").
     con.execute(
         "INSERT INTO lancamentos (tipo, valor_centavos, descricao, caixinha_id, data, conta_paga_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("pagamento", valor, f"Pagamento: {conta[4]}", item.caixinha_id, data_hoje(), conta_id, user_id)
+        ("pagamento", valor, f"Pagamento: {conta[4]}", caixinha_id, data_hoje(), conta_id, user_id)
     )
-    # marca a conta como paga e guarda de qual caixinha saiu
     con.execute(
         "UPDATE contas SET paga=1, caixinha_paga_id=? WHERE id=? AND user_id=?",
-        (item.caixinha_id, conta_id, user_id)
+        (caixinha_id, conta_id, user_id)
     )
-    con.commit()
-    con.close()
-    return {"status": "conta paga"}
+    return valor, conta[4]
+
+@app.post("/contas/{conta_id}/pagar")
+def pagar_conta(conta_id: int, item: PagamentoConta, user_id: str = Depends(exigir_login)):
+    con = conectar()
+    try:
+        _pagar_conta(con, user_id, conta_id, item.caixinha_id)
+        con.commit()
+        return {"status": "conta paga"}
+    finally:
+        con.close()
 
 @app.post("/contas/{conta_id}/pagar-parcial")
 def pagar_conta_parcial(conta_id: int, item: PagamentoParcial, user_id: str = Depends(exigir_login)):
@@ -3135,8 +3123,26 @@ def _tg_caixinha_por_nome(con, uid, nome):
             return (cid, cn)
     return (None, None)
 
+def _tg_cartao_no_texto(con, uid, t):
+    # devolve (id, nome) se algum cartão do usuário aparece no texto (minúsculo); senão (None, None)
+    for cid, cn in con.execute("SELECT id, nome FROM cartoes WHERE user_id=?", (uid,)).fetchall():
+        if cn and cn.lower() in t:
+            return (cid, cn)
+    return (None, None)
+
+def _tg_descricao_cartao(texto, cartao_nome):
+    t = re.sub(r"\b(gastei|paguei|comprei|gasto|compra)\b", "", texto, flags=re.I)
+    t = re.sub(r"r?\$?\s*\d[\d.,]*", "", t, count=1)                       # valor
+    t = re.sub(r"\bem\s+\d+\s*(?:x|vezes|vzs)\b", "", t, flags=re.I)       # parcelas
+    t = re.sub(r"\b\d+\s*(?:x|vezes|vzs)\b", "", t, flags=re.I)
+    t = re.sub(r"\bcart[aã]o(\s+de\s+cr[eé]dito)?\b", "", t, flags=re.I)
+    if cartao_nome:
+        t = re.sub(re.escape(cartao_nome), "", t, flags=re.I)
+    t = re.sub(r"\b(no|na|em|de|do|da|pra|para|com|reais?|real)\b", " ", t, flags=re.I)
+    return re.sub(r"\s+", " ", t).strip(" .,-")[:80]
+
 def _tg_descricao(texto):
-    t = re.sub(r"\b(gastei|paguei|comprei|gasto|recebi|ganhei|entrou|caiu|guardei|guardar|tirei|usei)\b", "", texto, flags=re.I)
+    t = re.sub(r"\b(gastei|paguei|comprei|gasto|recebi|ganhei|entrou|caiu|guardei|guardar|tirei|retirei|saquei|usei|adicionei|coloquei|depositei|botei|pus)\b", "", texto, flags=re.I)
     t = re.sub(r"r?\$?\s*\d[\d.,]*", "", t, count=1)
     t = re.sub(r"\b(no|na|em|de|do|da|pra|para|com|reais?|pila|conto|real)\b", " ", t, flags=re.I)
     return re.sub(r"\s+", " ", t).strip(" .,-")[:80]
@@ -3151,20 +3157,246 @@ def _tg_parse(texto, uid):
     t = texto.lower()
     con = conectar()
     try:
-        if re.search(r"\bguard", t):                       # guardar em caixinha
+        # 1) compra no cartão: nome de um cartão do usuário no texto, ou a palavra "cartão"
+        cid, cn = _tg_cartao_no_texto(con, uid, t)
+        if cid or re.search(r"\bcart[aã]o\b", t):
+            parcelas = 1
+            mp = re.search(r"(\d+)\s*(?:x|vezes|vzs)\b", t)
+            if mp:
+                parcelas = max(1, int(mp.group(1)))
+            if not cid:   # "no cartão" genérico, sem nome
+                cartoes = con.execute("SELECT id, nome FROM cartoes WHERE user_id=?", (uid,)).fetchall()
+                if len(cartoes) == 1:
+                    cid, cn = cartoes[0][0], cartoes[0][1]
+                elif not cartoes:
+                    return {"erro": "Você ainda não tem cartão cadastrado no app."}
+                else:
+                    return {"erro": "Em qual cartão? Você tem: " + ", ".join(x[1] for x in cartoes) + "."}
+            return {"tipo": "compra_cartao", "valor_centavos": valor, "descricao": _tg_descricao_cartao(texto, cn) or "Compra",
+                    "cartao_id": cid, "cartao_nome": cn, "parcelas": parcelas}
+        # 2) guardar/adicionar EM caixinha (ou "na conta" -> entrada)
+        if re.search(r"\b(guard|coloquei|adicionei|depositei|botei|pus)", t):
             nome = _tg_extrai_caixinha(texto, "na|no|em|para|pra")
-            cid, cn = _tg_caixinha_por_nome(con, uid, nome)
-            if not cid:
-                return {"erro": f'Não achei a caixinha "{nome or "—"}". Confere o nome no app.'}
-            return {"tipo": "alocacao", "valor_centavos": valor, "descricao": "", "caixinha_id": cid, "caixinha_nome": cn}
-        if re.search(r"\b(gast|paguei|tirei|usei)", t) and re.search(r"\bd[oa]\s+\w", t):   # gastar DE uma caixinha
+            kid, kn = _tg_caixinha_por_nome(con, uid, nome)
+            if kid:
+                return {"tipo": "alocacao", "valor_centavos": valor, "descricao": "", "caixinha_id": kid, "caixinha_nome": kn}
+            if re.search(r"\b(adicionei|coloquei|depositei|botei|pus)\b", t):   # "adicionei 100 na conta"
+                return {"tipo": "entrada", "valor_centavos": valor, "descricao": _tg_descricao(texto) or "Entrada"}
+            return {"erro": f'Não achei a caixinha "{nome or "—"}". Confere o nome no app.'}
+        # 3) gastar DE uma caixinha ("da reserva"); "da conta" cai fora e vira saída livre
+        if re.search(r"\b(gast|paguei|tirei|retirei|saquei|usei)", t) and re.search(r"\bd[oa]\s+\w", t):
             nome = _tg_extrai_caixinha(texto, "d[oa]")
-            cid, cn = _tg_caixinha_por_nome(con, uid, nome)
-            if cid:
-                return {"tipo": "pagamento", "valor_centavos": valor, "descricao": _tg_descricao(texto), "caixinha_id": cid, "caixinha_nome": cn}
-        if re.search(r"\b(recebi|ganhei|entrou|caiu|sal[aá]rio|receita|pix)\b", t):
+            kid, kn = _tg_caixinha_por_nome(con, uid, nome)
+            if kid:
+                return {"tipo": "pagamento", "valor_centavos": valor, "descricao": _tg_descricao(texto), "caixinha_id": kid, "caixinha_nome": kn}
+        # 4) entrada
+        if re.search(r"\b(recebi|ganhei|entrou|caiu|sal[aá]rio|receita|pix|adicionei|coloquei|depositei)\b", t):
             return {"tipo": "entrada", "valor_centavos": valor, "descricao": _tg_descricao(texto) or "Entrada"}
+        # 5) saída livre (default)
         return {"tipo": "saida_livre", "valor_centavos": valor, "descricao": _tg_descricao(texto) or "Gasto"}
+    finally:
+        con.close()
+
+# ---- Fases 3.1/3.2: consultas ricas (reusam os cálculos que já existem) ----
+def _tg_saldo_texto(uid, tipo):
+    con = conectar()
+    try:
+        livre = calcular_saldo_livre(con, uid)
+        caixas = con.execute("SELECT id FROM caixinhas WHERE user_id=?", (uid,)).fetchall()
+        guardado = sum(saldo_da_caixinha(con, uid, c[0]) for c in caixas)
+        if tipo == "livre":
+            return f"💵 Saldo livre: <b>{reais_txt(livre)}</b>."
+        if tipo == "guardado":
+            return f"🐷 Guardado nas caixinhas: <b>{reais_txt(guardado)}</b>."
+        return (f"💵 Livre: <b>{reais_txt(livre)}</b>\n🐷 Guardado nas caixinhas: <b>{reais_txt(guardado)}</b>\n"
+                f"Σ Total: <b>{reais_txt(livre + guardado)}</b>")
+    finally:
+        con.close()
+
+def _tg_caixinha_saldo_texto(uid, nome):
+    con = conectar()
+    try:
+        cid, cn = _tg_caixinha_por_nome(con, uid, nome)
+        if not cid:
+            return f'Não achei a caixinha "{nome or "—"}".'
+        s = saldo_da_caixinha(con, uid, cid)
+        meta = (con.execute("SELECT meta_centavos FROM caixinhas WHERE id=? AND user_id=?", (cid, uid)).fetchone() or [0])[0] or 0
+        txt = f"🐷 <b>{_esc_html(cn)}</b>: {reais_txt(s)}"
+        if meta > 0:
+            txt += f" de {reais_txt(meta)} (faltam {reais_txt(max(meta - s, 0))})"
+        return txt
+    finally:
+        con.close()
+
+def _tg_caixinhas_texto(uid):
+    con = conectar()
+    try:
+        caixas = con.execute("SELECT id, nome FROM caixinhas WHERE user_id=?", (uid,)).fetchall()
+        if not caixas:
+            return "Você ainda não tem caixinhas."
+        linhas = ["🐷 <b>Suas caixinhas</b>"]; tot = 0
+        for cid, cn in caixas:
+            s = saldo_da_caixinha(con, uid, cid); tot += s
+            linhas.append(f"• {_esc_html(cn)}: {reais_txt(s)}")
+        linhas.append(f"Σ Total guardado: <b>{reais_txt(tot)}</b>")
+        return "\n".join(linhas)
+    finally:
+        con.close()
+
+def _tg_meta_texto(uid, nome):
+    con = conectar()
+    try:
+        if nome:
+            cid, cn = _tg_caixinha_por_nome(con, uid, nome)
+            rows = [(cid, cn)] if cid else []
+        else:
+            rows = con.execute("SELECT id, nome FROM caixinhas WHERE user_id=? AND meta_centavos>0", (uid,)).fetchall()
+        linhas = []
+        for cid, cn in rows:
+            r = con.execute("SELECT meta_centavos, meta_prazo FROM caixinhas WHERE id=? AND user_id=?", (cid, uid)).fetchone()
+            meta = (r[0] or 0) if r else 0
+            if meta <= 0:
+                continue
+            s = saldo_da_caixinha(con, uid, cid)
+            falta = max(meta - s, 0)
+            txt = f"🎯 <b>{_esc_html(cn)}</b>: {reais_txt(s)}/{reais_txt(meta)} — faltam {reais_txt(falta)}"
+            if r[1] and falta > 0:
+                try:
+                    y, m, _ = map(int, r[1].split("-")); hoje = date.today()
+                    meses = max((y - hoje.year) * 12 + (m - hoje.month), 1)
+                    txt += f" (~{reais_txt(falta // meses)}/mês até {_fmt_data_br(r[1])})"
+                except Exception:
+                    pass
+            linhas.append(txt)
+        return "\n".join(linhas) if linhas else "Não achei uma caixinha com meta. Defina uma no app."
+    finally:
+        con.close()
+
+def _tg_orcamento_texto(uid, categoria=None):
+    con = conectar()
+    try:
+        mes = date.today().strftime("%Y-%m")
+        gasto = gasto_por_categoria(con, uid, mes)
+        if categoria:
+            nome = _nome_categoria_real(con, uid, categoria)
+            g = gasto.get(categoria.lower(), 0)
+            lim = limite_categoria(con, uid, nome, mes)
+            if not lim:
+                return f"Em {nome} você gastou {reais_txt(g)} este mês (sem teto definido)."
+            emoji = "🔴" if g > lim else ("🟡" if g >= 0.8 * lim else "🟢")
+            fim = ("estourou em " + reais_txt(g - lim)) if g > lim else ("resta " + reais_txt(lim - g))
+            return f"{emoji} {nome}: gastou {reais_txt(g)} de {reais_txt(lim)} — {fim}."
+        cats = con.execute("SELECT nome FROM categorias WHERE user_id=?", (uid,)).fetchall()
+        linhas = []
+        for (cn,) in cats:
+            lim = limite_categoria(con, uid, cn, mes)
+            if not lim:
+                continue
+            g = gasto.get(cn.lower(), 0)
+            emoji = "🔴" if g > lim else ("🟡" if g >= 0.8 * lim else "🟢")
+            linhas.append(f"{emoji} {_esc_html(cn)}: {reais_txt(g)}/{reais_txt(lim)}")
+        return ("📊 <b>Orçamento do mês</b>\n" + "\n".join(linhas)) if linhas else "Você ainda não definiu tetos de orçamento (dá pra criar no app)."
+    finally:
+        con.close()
+
+def _tg_analise_texto(uid, tipo):
+    con = conectar()
+    try:
+        hoje = date.today(); mes = hoje.strftime("%Y-%m")
+        if tipo == "mes_passado":
+            y, m = hoje.year, hoje.month - 1
+            if m == 0:
+                y, m = y - 1, 12
+            mes = f"{y:04d}-{m:02d}"
+        t = totais_mes(con, uid, mes)
+        if tipo == "recebi":
+            return f"💰 Você recebeu {reais_txt(t['entrou_centavos'])} em {_competencia_label(mes)}."
+        if tipo == "onde_gasto":
+            g = gasto_por_categoria(con, uid, mes)
+            top = [kv for kv in sorted(g.items(), key=lambda kv: kv[1], reverse=True) if kv[1] > 0][:3]
+            if not top:
+                return "Sem gastos categorizados este mês."
+            linhas = ["📉 <b>Onde você mais gastou</b>"]
+            for cat, v in top:
+                linhas.append(f"• {_esc_html(_nome_categoria_real(con, uid, cat))}: {reais_txt(v)}")
+            return "\n".join(linhas)
+        return (f"🛒 Em {_competencia_label(mes)} você gastou {reais_txt(t['saiu_centavos'])} "
+                f"(entrou {reais_txt(t['entrou_centavos'])}, sobrou {reais_txt(t['sobrou_centavos'])}).")
+    finally:
+        con.close()
+
+def _tg_cartao_texto(uid, tipo):
+    con = conectar()
+    try:
+        cartoes = con.execute("SELECT id, nome, limite_centavos, dia_fechamento, dia_vencimento FROM cartoes WHERE user_id=?", (uid,)).fetchall()
+        if not cartoes:
+            return "Você não tem cartão cadastrado."
+        linhas = []
+        for cid, cn, lim, fech, venc in cartoes:
+            usado = _usado_cartao(con, uid, cid); lim = lim or 0
+            if tipo == "limite":
+                linhas.append(f"💳 {_esc_html(cn)}: limite {reais_txt(lim)}, disponível {reais_txt(lim - usado)}")
+            elif tipo == "vencimento":
+                linhas.append(f"💳 {_esc_html(cn)}: fecha dia {fech}, vence dia {venc}")
+            else:   # fatura / geral
+                linhas.append(f"💳 {_esc_html(cn)}: em aberto {reais_txt(usado)} de {reais_txt(lim)}")
+        return "\n".join(linhas)
+    finally:
+        con.close()
+
+def _tg_assinaturas_texto(uid):
+    con = conectar()
+    try:
+        rows = con.execute("SELECT nome, valor_centavos, proximo_vencimento FROM licencas WHERE user_id=? ORDER BY proximo_vencimento", (uid,)).fetchall()
+        if not rows:
+            return "Você não tem assinaturas/recorrências cadastradas."
+        tot = sum((r[1] or 0) for r in rows)
+        linhas = ["🔁 <b>Assinaturas</b>"]
+        for nome, val, venc in rows:
+            linhas.append(f"• {_esc_html(nome)}: {reais_txt(val or 0)}" + (f" — vence {_fmt_data_br(venc)}" if venc else ""))
+        linhas.append(f"Σ Total: <b>{reais_txt(tot)}</b>")
+        return "\n".join(linhas)
+    finally:
+        con.close()
+
+def _tg_marcar_conta_paga(texto, uid):
+    """Fase 5.1: 'marque a conta de luz como paga (da caixinha X)'. Pagar conta SEMPRE sai de uma
+    caixinha; se não vier o nome e o usuário tiver 1 só, usa ela; senão pede. Devolve ação/erro/None."""
+    t = texto.lower().strip()
+    if not (re.search(r"\b(marc\w*|marqu\w*)\b", t) and re.search(r"\bconta\b", t)):
+        return None
+    con = conectar()
+    try:
+        kid = kn = None; caixa_nome = ""
+        cx = re.search(r"\b(?:d[oa]|pel[oa]|usando(?:\s+[ao])?)\s+(?:caixinha\s+)?([a-zà-ú0-9 ]+?)\s*$", t)
+        if cx:
+            k, n = _tg_caixinha_por_nome(con, uid, cx.group(1).strip())
+            if k:
+                kid, kn, caixa_nome = k, n, cx.group(1).strip()
+        base = t[:t.rfind(caixa_nome)] if caixa_nome else t
+        m = re.search(r"\bconta\s+(?:de\s+|do\s+|da\s+)?(.+?)(?:\s+como\s+pag\w*.*)?$", base)
+        nome = (m.group(1).strip(" .,-") if m else "")
+        nome = re.sub(r"\b(como|pag\w*|d[oa]|pel[oa]|usando)\b.*$", "", nome).strip()
+        if not nome:
+            return {"erro": "Qual conta? Ex.: <b>marque a conta de luz como paga da reserva</b>."}
+        rows = con.execute("SELECT id, nome, valor_centavos, tipo_conta FROM contas WHERE user_id=? AND paga=0 AND (arquivada=0 OR arquivada IS NULL)", (uid,)).fetchall()
+        alvo = None
+        for cid, cn, val, tc in rows:
+            low = (cn or "").lower()
+            if nome in low or low in nome:
+                alvo = (cid, cn, val, tc); break
+        if not alvo:
+            return {"erro": f'Não achei uma conta em aberto com "{nome}". Veja em Contas no app.'}
+        if not kid:
+            caixas = con.execute("SELECT id, nome FROM caixinhas WHERE user_id=?", (uid,)).fetchall()
+            if len(caixas) == 1:
+                kid, kn = caixas[0][0], caixas[0][1]
+            else:
+                return {"erro": "De qual caixinha eu pago? Ex.: <b>marque a conta de luz como paga da reserva</b>."}
+        total = total_conta(con, uid, alvo[0], alvo[3] or "simples", alvo[2])
+        falta = total - total_pago_conta(con, uid, alvo[0])
+        return {"tipo": "pagar_conta", "conta_id": alvo[0], "nome": alvo[1], "valor_centavos": max(falta, 0),
+                "caixinha_id": kid, "caixinha_nome": kn}
     finally:
         con.close()
 
@@ -3172,37 +3404,105 @@ def _tg_pergunta(texto, uid):
     """Fase 3: mapeia pergunta em linguagem natural pra uma chave do assistente e responde.
     Roda ANTES do registro (pra "posso comprar 200" não virar gasto). Devolve texto ou None."""
     t = texto.lower().strip()
-    q = None; categoria = None; valor = 0; parcelas = 1
+
+    def _assist(q, categoria=None, valor=0, parcelas=1):
+        con = conectar()
+        try:
+            return _assistente_resposta(con, uid, q, categoria, valor, parcelas, None)
+        except HTTPException as e:
+            return str(e.detail)
+        finally:
+            con.close()
+
+    # se é REGISTRO (verbo de ação + número), não é pergunta -> deixa o _tg_parse cuidar
+    if re.search(r"\b(gastei|paguei|comprei|recebi|ganhei|guardei|coloquei|adicionei|depositei|tirei|retirei|saquei|botei|pus)\b", t) and re.search(r"\d", t):
+        if not re.search(r"\b(posso|consigo|d[aá]\s*pra)\b.*comprar", t):
+            return None
+
+    # "posso comprar X (em Nx)?"
     if re.search(r"\b(posso|consigo|d[aá]\s*pra)\b.*\bcomprar\b", t) or re.search(r"\bcomprar\b.*\?", t):
-        q = "posso_comprar"
-        m = re.search(r"\d[\d.,]*", texto)
-        valor = _num_para_centavos(m.group(0)) if m else 0
-        mp = re.search(r"(\d+)\s*x", t)
-        if mp:
-            parcelas = int(mp.group(1))
-    elif re.search(r"\bquanto\s+(eu\s+)?(gastei|gasto)\s+(em|com|no|na)\b", t):
-        q = "gasto_categoria"
-        mc = re.search(r"\b(?:em|com|no|na)\s+([a-zà-ú ]+?)\s*\??$", t)
-        categoria = mc.group(1).strip() if mc else None
-    elif re.search(r"\b(sobr|livre|saldo|dispon)", t):
-        q = "sobra"
-    elif re.search(r"\b(resumo|como\s+(eu\s+)?(t[oô]|estou|vou|ando)|como\s+est)", t):
-        q = "resumo"
-    elif re.search(r"\b(pagar|contas?|vencend|vence|dever|d[ií]vida)", t):
-        q = "pagar"
-    if not q:
-        return None
-    con = conectar()
-    try:
-        return _assistente_resposta(con, uid, q, categoria, valor, parcelas, None)
-    except HTTPException as e:
-        return str(e.detail)
-    finally:
-        con.close()
+        m = re.search(r"\d[\d.,]*", texto); mp = re.search(r"(\d+)\s*x", t)
+        return _assist("posso_comprar", None, _num_para_centavos(m.group(0)) if m else 0, int(mp.group(1)) if mp else 1)
+
+    # cartões (consulta)
+    if re.search(r"\bcart[aã]o|\bfatura\b", t):
+        if re.search(r"\blimite\b", t):
+            return _tg_cartao_texto(uid, "limite")
+        if re.search(r"\b(vence|vencimento|fecha|fechamento)\b", t):
+            return _tg_cartao_texto(uid, "vencimento")
+        return _tg_cartao_texto(uid, "fatura")
+
+    # assinaturas / recorrências
+    if re.search(r"\b(assinatura|recorr|licen[cç]a)", t):
+        return _tg_assinaturas_texto(uid)
+
+    # metas
+    if re.search(r"\bmeta\b|preciso guardar", t):
+        mc = re.search(r"\b(?:caixinha|meta d[oa])\s+([a-zà-ú0-9 ]+?)\s*\??$", t)
+        return _tg_meta_texto(uid, mc.group(1).strip() if mc else None)
+
+    # orçamento
+    if re.search(r"\bor[çc]amento|estourei|posso gastar|ainda.*gastar", t):
+        mc = re.search(r"\b(?:com|em)\s+([a-zà-ú ]+?)\s*\??$", t)
+        return _tg_orcamento_texto(uid, mc.group(1).strip() if mc else None)
+
+    # quanto gastei em <categoria>
+    if re.search(r"\bquanto\s+(eu\s+)?(gastei|gasto)\s+(em|com)\b", t):
+        mc = re.search(r"\b(?:em|com)\s+([a-zà-ú ]+?)\s*\??$", t)
+        return _assist("gasto_categoria", mc.group(1).strip() if mc else None)
+
+    # saldo em caixinhas / livre / total
+    if re.search(r"\bnas caixinhas\b", t):
+        return _tg_caixinhas_texto(uid)
+    if re.search(r"\bguardad", t):
+        return _tg_saldo_texto(uid, "guardado")
+    if re.search(r"\b(livre|dispon[ií]vel)\b", t):
+        return _tg_saldo_texto(uid, "livre")
+    if (re.search(r"\bquanto tenho\b|\bmeu saldo\b|\bsaldo\b", t)
+            and not re.search(r"\b(a\s+pagar|pagar|vencend|vence|d[ií]vida|quais\s+contas)", t)):
+        mc = re.search(r"\bn[oa]\s+([a-zà-ú0-9 ]+?)\s*\??$", t)
+        if mc:
+            con = conectar()
+            try:
+                kid, _kn = _tg_caixinha_por_nome(con, uid, mc.group(1).strip())
+            finally:
+                con.close()
+            if kid:
+                return _tg_caixinha_saldo_texto(uid, mc.group(1).strip())
+        if re.search(r"\btotal\b", t):
+            return _tg_saldo_texto(uid, "total")
+        return _tg_saldo_texto(uid, "livre")
+
+    # análises
+    if re.search(r"\bonde\b.*gast", t):
+        return _tg_analise_texto(uid, "onde_gasto")
+    if re.search(r"\bquanto\s+recebi", t):
+        return _tg_analise_texto(uid, "recebi")
+    if re.search(r"\bquanto\s+(gastei|gasto)\b", t):
+        return _tg_analise_texto(uid, "mes_passado" if "passad" in t else "mes")
+    if re.search(r"\bsobrou\b|\bsobra\b", t):
+        return _assist("sobra")
+
+    # resumo / como estou
+    if re.search(r"\bresumo|como\s+(eu\s+)?(t[oô]|estou|vou|ando)|como\s+est", t):
+        return _assist("resumo")
+
+    # contas a pagar
+    if re.search(r"\b(a\s+pagar|quais\s+contas?|pr[oó]xima\s+conta|vencend|vence|d[ií]vida)\b", t) or re.search(r"quanto.*\bpagar\b", t):
+        return _assist("pagar")
+
+    return None
 
 def _tg_resumo_acao(a):
     v = ("R$ %.2f" % (a["valor_centavos"] / 100)).replace(".", ",")
     d = a.get("descricao") or ""
+    if a["tipo"] == "pagar_conta":
+        return f"✅ Marcar a conta <b>{_esc_html(a.get('nome',''))}</b> ({v}) como paga — sai da caixinha <b>{_esc_html(a.get('caixinha_nome',''))}</b>?"
+    if a["tipo"] == "compra_cartao":
+        p = a.get("parcelas", 1)
+        ptxt = (" em %dx de %s" % (p, ("R$ %.2f" % (a["valor_centavos"] / 100 / p)).replace(".", ","))) if p > 1 else ""
+        dtxt = (" — " + _esc_html(d)) if d and d != "Compra" else ""
+        return f"🧾 Compra de <b>{v}</b> no cartão <b>{_esc_html(a.get('cartao_nome',''))}</b>{ptxt}{dtxt}"
     if a["tipo"] == "conta":
         venc = a.get("vencimento") or ""
         vtxt = f" — vence {_fmt_data_br(venc)}" if venc else ""
@@ -3228,6 +3528,12 @@ def _tg_registrar(uid, acao):
     con = conectar()
     try:
         tipo = acao["tipo"]; valor = acao["valor_centavos"]
+        if tipo == "pagar_conta":   # Fase 5.1: marca conta paga (usa a MESMA regra do site)
+            _pagar_conta(con, uid, acao["conta_id"], acao["caixinha_id"])
+            con.commit(); return
+        if tipo == "compra_cartao":   # Fase 2.1: usa a MESMA regra de fatura do site
+            _lancar_compra_cartao(con, uid, acao["cartao_id"], acao.get("descricao") or "Compra", valor, acao.get("parcelas", 1))
+            con.commit(); return
         if tipo == "conta":   # Fase 4: cadastra uma conta a pagar (lida do comprovante)
             venc = acao.get("vencimento")
             if not data_valida(venc or ""):
@@ -3355,6 +3661,11 @@ def _tratar_update_telegram(update):
     if texto.startswith("/"):
         _telegram_enviar(chat_id, "Sem comandos por enquanto — é só escrever naturalmente, tipo <b>gastei 50 no mercado</b> ou <b>guardei 100 na reserva</b>.")
         return
+    esp = _tg_marcar_conta_paga(texto, uid)   # Fase 5.1: ação "marcar conta paga"
+    if esp is not None:
+        if esp.get("erro"):
+            _telegram_enviar(chat_id, esp["erro"]); return
+        esp["ts"] = _time.time(); _tg_pendentes[chat_id] = esp; _tg_confirmar(chat_id, esp); return
     resp = _tg_pergunta(texto, uid)   # Fase 3: pergunta (antes do registro)
     if resp is not None:
         _telegram_enviar(chat_id, resp); return
@@ -3619,45 +3930,47 @@ def apagar_cartao(cartao_id: int, user_id: str = Depends(exigir_login)):
     con.close()
     return {"status": "cartão apagado"}
 
-@app.post("/cartoes/{cartao_id}/compra")
-def comprar_no_cartao(cartao_id: int, item: NovaCompra, user_id: str = Depends(exigir_login)):
-    """Lança uma compra no cartão (à vista ou parcelada). Parcela 1 cai na fatura da competência
-    da compra; as demais, nos meses seguintes. Divide igual e a última parcela absorve a sobra."""
-    if not (item.descricao or "").strip():
+def _lancar_compra_cartao(con, user_id, cartao_id, descricao, valor_centavos, parcelas=1, data=None):
+    """Núcleo da compra no cartão (mesma regra do site). NÃO faz commit/close — quem chama gerencia.
+    Parcela 1 cai na fatura da competência da compra; as demais, nos meses seguintes."""
+    descricao = (descricao or "").strip()
+    if not descricao:
         raise HTTPException(status_code=400, detail="Descreva a compra.")
-    if item.valor_centavos <= 0:
+    if valor_centavos <= 0:
         raise HTTPException(status_code=400, detail="O valor precisa ser maior que zero.")
-    if item.parcelas < 1 or item.parcelas > 60:
+    if parcelas < 1 or parcelas > 60:
         raise HTTPException(status_code=400, detail="Número de parcelas inválido (1 a 60).")
-    if item.data and not data_valida(item.data):
+    if data and not data_valida(data):
         raise HTTPException(status_code=400, detail="Data inválida.")
-    con = conectar()
-    cart = con.execute(
-        "SELECT dia_fechamento FROM cartoes WHERE id=? AND user_id=?", (cartao_id, user_id)
-    ).fetchone()
+    cart = con.execute("SELECT dia_fechamento FROM cartoes WHERE id=? AND user_id=?", (cartao_id, user_id)).fetchone()
     if cart is None:
-        con.close()
         raise HTTPException(status_code=404, detail="Cartão não encontrado.")
-    data = item.data if item.data else data_hoje()
+    data = data if data else data_hoje()
     comp0 = _competencia_compra(data, cart[0])
-    n = item.parcelas
-    base = item.valor_centavos // n
-    resto = item.valor_centavos - base * n   # sobra vai na última parcela
+    n = parcelas
+    base = valor_centavos // n
+    resto = valor_centavos - base * n   # sobra vai na última parcela
     for k in range(n):
         comp = _somar_meses(comp0, k)
         fid, paga = _achar_ou_criar_fatura(con, user_id, cartao_id, comp)
         if paga == 1:
-            con.close()
             raise HTTPException(status_code=400, detail=f"A fatura de {_competencia_label(comp)} já foi paga — desfaça o pagamento para lançar nela.")
         valor_parcela = base + (resto if k == n - 1 else 0)
-        desc = item.descricao.strip() if n == 1 else f"{item.descricao.strip()} ({k+1}/{n})"
+        desc = descricao if n == 1 else f"{descricao} ({k+1}/{n})"
         con.execute(
             "INSERT INTO fatura_itens (conta_id, descricao, valor_centavos, data, user_id) VALUES (?, ?, ?, ?, ?)",
-            (fid, desc, valor_parcela, data, user_id)
-        )
-    con.commit()
-    con.close()
-    return {"status": "compra lançada", "parcelas": n, "competencia_inicial": comp0}
+            (fid, desc, valor_parcela, data, user_id))
+    return n, comp0
+
+@app.post("/cartoes/{cartao_id}/compra")
+def comprar_no_cartao(cartao_id: int, item: NovaCompra, user_id: str = Depends(exigir_login)):
+    con = conectar()
+    try:
+        n, comp0 = _lancar_compra_cartao(con, user_id, cartao_id, item.descricao, item.valor_centavos, item.parcelas, item.data)
+        con.commit()
+        return {"status": "compra lançada", "parcelas": n, "competencia_inicial": comp0}
+    finally:
+        con.close()
 
 
 # ========================================================

@@ -2334,3 +2334,36 @@ Telegram 17+18+8+6, MFA 16, hierarquia 29 — 94 no total, 0 falha.
 
 **Telegram COMPLETO (Fases 1-4).** Falta só o Renan ativar no ar: BotFather -> TELEGRAM_BOT_TOKEN no Render ->
 Registrar webhook -> cron. Aí testa: conectar, "gastei 50 no mercado", "quanto sobrou?", foto de um boleto.
+
+## Etapa 47 — Telegram: visão completa (cartão, conta, consultas ricas, marcar paga) (25/09/2026)
+
+O Renan aprovou o plano inteiro do bot ("prepara todo o código, depois a gente faz"). Implementei todas as
+fases restantes, sempre REUSANDO os serviços do site (nada de regra financeira duplicada) e com confirmação
+em tudo que mexe em dinheiro. Decisões travadas (seguras, e a confirmação protege): NLU por regras (custo 0);
+"conta" = saldo geral ("adicionei X na conta"→entrada, "tirei X da conta"→saída); banco↔banco por texto não
+(ambíguo demais).
+
+**Fase 2.1 — compra no cartão por texto:** "gastei 600 no cartão nubank em 3x" → acha o cartão pelo nome (ou o
+único, ou pede qual), lê parcelas ("Nx"/"em N vezes"), e lança na fatura reusando `_lancar_compra_cartao`
+(extraído de `comprar_no_cartao`). Resolve o exemplo que o Renan levantou (antes virava saída livre).
+
+**Fase 2.2 — conta/transferência:** "adicionei/coloquei 100 na conta" → entrada; "tirei 50 da conta" → saída
+livre; "coloquei 200 na reserva" continua guardar na caixinha (desambiguado por nome de caixinha).
+
+**Fase 3.1/3.2 — consultas ricas:** saldo livre × guardado × total; "quanto tenho na caixinha X"; caixinhas;
+metas (falta/por mês); orçamento (por categoria e visão geral); análises (gastei mês/mês passado, recebi, onde
+gasto mais); cartão (limite, fatura em aberto, vence/fecha); assinaturas. Tudo por helpers `_tg_*_texto` que
+reusam `calcular_saldo_livre`, `saldo_da_caixinha`, `totais_mes`, `gasto_por_categoria`, `limite_categoria`,
+`_usado_cartao`. O `/assistente` virou `_assistente_resposta` reusável (Etapa 46).
+
+**Fase 5.1 — marcar conta paga:** "marque a conta de luz como paga da reserva" → acha a conta aberta pelo nome,
+a caixinha (nomeada ou a única) e paga reusando `_pagar_conta` (extraído de `pagar_conta`). Pagar conta SEMPRE
+sai de uma caixinha, então sem nome e com >1 caixinha ele pede qual.
+
+**Roteamento robusto:** um guard no topo do `_tg_pergunta` — se tem verbo de ação + número, é REGISTRO (vai pro
+`_tg_parse`), não pergunta; exceção "posso comprar". Isso evita "gastei 300 no cartão" (ação) ser confundido com
+consulta de cartão, e "quanto gastei em X" (pergunta) com registro. Bug pego: "marque" não casa com regex "marc"
+(é "marqu"); e "quanto tenho a pagar" não pode cair no ramo de saldo.
+
+**Testado local: 121/121** (Telegram 17+18+10+8+6+17, MFA 16, hierarquia 29), 0 falha. Segue sem ativar no ar
+(BotFather/token/cron pendentes do Renan). Refatorações de reuso: `_lancar_compra_cartao` e `_pagar_conta`.
