@@ -468,6 +468,14 @@ def _garantir_usuario(user_id):
     con.close()
     _usuarios_prontos.add(user_id)
 
+# Mudança 12 — 2FA: se o usuário ativou o 2FA (flag mfa_ativo em app_metadata, que SÓ a
+# service_role escreve — o usuário não consegue editar), o token precisa ser nível aal2,
+# ou seja, o 2º fator (TOTP) já foi verificado NESTA sessão. Senão, 401 MFA_REQUERIDO.
+def _exigir_mfa(dados):
+    app_md = dados.get("app_metadata") or {}
+    if app_md.get("mfa_ativo") and (dados.get("aal") or "aal1") != "aal2":
+        raise HTTPException(status_code=401, detail="MFA_REQUERIDO")
+
 # dependência que protege as rotas: exige um token válido do Supabase e devolve o user_id
 def exigir_login(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
     if cred is None:
@@ -479,6 +487,7 @@ def exigir_login(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
     user_id = dados.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token sem usuário.")
+    _exigir_mfa(dados)   # M12: 2FA obrigatório se o usuário ativou
     _garantir_usuario(user_id)
     return user_id
 
@@ -537,6 +546,7 @@ def exigir_admin(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
     dados = _token_dados(cred)
     if not dados.get("sub"):
         raise HTTPException(status_code=401, detail="Token sem usuário.")
+    _exigir_mfa(dados)   # M12: admin com 2FA ativo também precisa passar o 2º fator
     if not _eh_admin(dados):
         raise HTTPException(status_code=403, detail="Só o administrador pode fazer isso.")
     if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
@@ -2965,6 +2975,59 @@ def rebaixar_admin(uid: str, dados: dict = Depends(exigir_super)):
     meta.pop("role", None)
     _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"user_metadata": meta})
     return {"status": "admin rebaixado a usuário padrão"}
+
+
+# ========================================================
+# 2FA (MFA/TOTP) — Mudança 12
+# O cadastro/verificação do fator TOTP acontece no FRONT, direto no Supabase Auth (com o token
+# do usuário). Aqui só ligamos/desligamos o flag `mfa_ativo` em app_metadata (via service_role) —
+# que é o que a trava de aal2 lê no token. app_metadata o usuário não edita, então a trava é real.
+# ========================================================
+def _tem_totp_verificado(u):
+    return any((f.get("factor_type") == "totp" and f.get("status") == "verified")
+               for f in (u.get("factors") or []))
+
+def _set_mfa_flag(uid, ativo, u=None):
+    u = u or _buscar_usuario(uid)
+    app_md = dict(u.get("app_metadata") or {})   # preserva provider etc.
+    app_md["mfa_ativo"] = bool(ativo)
+    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"app_metadata": app_md})
+
+def _apagar_totp(uid, u=None):
+    u = u or _buscar_usuario(uid)
+    for f in (u.get("factors") or []):
+        if f.get("factor_type") == "totp":
+            try:
+                _supabase_admin("DELETE", f"/auth/v1/admin/users/{uid}/factors/{f.get('id')}")
+            except HTTPException:
+                pass
+
+@app.post("/mfa/ativar")
+def mfa_ativar(user_id: str = Depends(exigir_login)):
+    # o front já cadastrou e verificou o TOTP; aqui confirmamos e ligamos o flag (app_metadata)
+    u = _buscar_usuario(user_id)
+    if not _tem_totp_verificado(u):
+        raise HTTPException(status_code=400, detail="Cadastre e confirme o autenticador antes de ativar.")
+    _set_mfa_flag(user_id, True, u)
+    return {"status": "2FA ativado"}
+
+@app.post("/mfa/desativar")
+def mfa_desativar(user_id: str = Depends(exigir_login)):
+    # exigir_login já garante aal2 pra quem tem 2FA, então só desativa quem passou o 2º fator
+    u = _buscar_usuario(user_id)
+    _apagar_totp(user_id, u)
+    _set_mfa_flag(user_id, False, u)
+    return {"status": "2FA desativado"}
+
+@app.post("/admin/usuarios/{uid}/resetar-mfa")
+def resetar_mfa(uid: str, dados: dict = Depends(exigir_admin)):
+    # super reseta qualquer um; admin só usuários padrão (anti-lockout se perder o autenticador)
+    alvo = _buscar_usuario(uid)
+    if not _pode_gerir_alvo(dados, _papel_usuario(alvo)):
+        raise HTTPException(status_code=403, detail="Você não pode gerenciar este usuário.")
+    _apagar_totp(uid, alvo)
+    _set_mfa_flag(uid, False, alvo)
+    return {"status": "2FA resetado"}
 
 
 # ========================================================

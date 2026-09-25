@@ -2209,3 +2209,59 @@ não apaga, só super promove, ninguém bloqueia o super, ninguém age sobre si 
 **Render configurado (25/09/2026):** `ADMIN_EMAIL=renangaming12@gmail.com` (super admin) + `SUPABASE_SERVICE_ROLE_KEY`
 adicionados no serviço (via extensão no dashboard; o Renan colou a chave secreta). A partir daqui a área de
 Usuários funciona de verdade em produção.
+
+## Etapa 42 — OCR em produção via Docker (novo serviço no Render) (25/09/2026)
+
+Problema: em produção o `/ocr-status` era `false` — o leitor de conta por foto (Tesseract) ficava escondido.
+Causa: o serviço no Render rodava no **runtime nativo "Python 3"**, que não instala programa de sistema
+(`apt`). O repo já tinha um `Dockerfile` que instala `tesseract-ocr` + `tesseract-ocr-por`, mas o Render
+**não deixa trocar o runtime de um serviço existente** (Python → Docker é definido na criação).
+
+Solução: criado um **serviço novo com runtime Docker** apontando pro mesmo repo (o Render detectou o
+Dockerfile sozinho). Feito em paralelo, sem derrubar o antigo:
+- Novo serviço: **Sistema-Financeiro-2** (`srv-daraphid0e5s73e1et7g`), Docker + Free, branch `main`.
+- **URL nova: `https://sistema-financeiro-2.onrender.com`** (sem sufixo aleatório).
+- Env vars: as 12 migradas (Postgres + Supabase + `ADMIN_EMAIL` + `SUPABASE_SERVICE_ROLE_KEY`).
+- Supabase: **Site URL** trocado pro `-2` e **Redirect URLs** com as duas (antiga mantida na transição).
+
+Verificado no ar: `/` = 200, `/ocr-status` = **`true`** (OCR ativo — Tesseract no container), `/me` sem token
+= 401. Renan testou no navegador: login + hierarquia (Etapa 41) + OCR (tela Contas → "Ler conta por foto ou
+PDF") **funcionando**. O serviço antigo (`srv-d9t18u142hec73btjmk0`, Python, OCR off) vai ser aposentado.
+
+Pendências: aposentar o serviço antigo; rotacionar os segredos (service_role/JWT/senha do DB passaram por
+canal a mais); MFA (Mudança 12, Supabase → Authentication → Multi-Factor).
+
+## Etapa 43 — Verificação em duas etapas (2FA/TOTP) (Mudança 12) (25/09/2026)
+
+2FA opcional por usuário, via app autenticador (TOTP). Decisões do Renan: trava no front **e** no
+backend (reforço real) + super admin pode resetar o 2FA de alguém (anti-lockout).
+
+**Chave do design:** o flag `mfa_ativo` fica em **`app_metadata`** (não `user_metadata`), porque
+`app_metadata` só a **service_role** escreve — o usuário não consegue editar pra burlar a trava. E como
+`app_metadata` vem dentro do JWT, o backend confere **sem chamada extra por requisição**.
+
+**Backend (`main.py`):**
+- `_exigir_mfa(dados)`: se `app_metadata.mfa_ativo` e o token não for nível **`aal2`**, 401 `MFA_REQUERIDO`.
+  Chamado em `exigir_login` e `exigir_admin` (fora do try, pra o 401 propagar).
+- `POST /mfa/ativar` (exigir_login): confirma que o usuário tem um fator TOTP **verificado** (Admin API) e
+  liga `mfa_ativo=true` via service_role.
+- `POST /mfa/desativar` (exigir_login → já exige aal2 pra quem tem 2FA): apaga os fatores TOTP + zera o flag.
+- `POST /admin/usuarios/{uid}/resetar-mfa` (exigir_admin + hierarquia): apaga fatores + zera flag (super
+  qualquer um; admin só padrão).
+- Helpers `_tem_totp_verificado`, `_set_mfa_flag` (merge do app_metadata), `_apagar_totp`.
+
+**Front (`app.js`+`index.html`):** enroll/challenge/verify vão **direto no Supabase** com o token (igual
+troca de senha). Configurações → painel "Verificação em duas etapas" (Ativar mostra QR + secret + confirma
+código; Desativar). Overlay `tela-mfa` no login (código de 6 dígitos) disparado por `_mfaPendente(token)`
+(app_metadata.mfa_ativo + aal!=aal2) em `entrarApp`/`iniciar`, e como backstop pelo `pedir()` ao ver
+`MFA_REQUERIDO`. Tela Usuários ganhou botão "Resetar 2FA". Ao verificar, o Supabase devolve um token aal2
+que substitui o TOKEN (localStorage).
+
+**Testado local (SQLite + HS256 + Admin API mockada): 16/16** — trava aal1/aal2 (com e sem MFA), `/mfa/ativar`
+(400 sem fator, 200 + liga flag), `/mfa/desativar` (apaga fator + zera flag), `resetar-mfa` (hierarquia).
+Hierarquia da Etapa 41 revalidada: 29/29 (a checagem de MFA não afeta quem não tem 2FA). Pegadinha nos
+testes: `_carregar_env_local` faz `setdefault`, então pra forçar SQLite tem que setar `PGHOST=""`/`DATABASE_URL=""`
+(string vazia), não remover a var.
+
+**Pendente:** habilitar TOTP no Supabase (Authentication → Multi-Factor) e teste real do fluxo (QR + código
+de um app autenticador) no app publicado — não dá pra automatizar.

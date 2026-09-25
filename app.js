@@ -155,6 +155,11 @@ async function pedir(rota, opcoes) {
   if (TOKEN) opcoes.headers["Authorization"] = "Bearer " + TOKEN;
   const resp = await fetch(API + rota, opcoes);
   if (resp.status === 401) {
+    let _d = {}; try { _d = await resp.json(); } catch (e) {}
+    if (_d.detail === "MFA_REQUERIDO") {   // M12: precisa passar o 2º fator antes
+      if (typeof abrirDesafioMfa === "function") abrirDesafioMfa();
+      throw new Error("Verificação em duas etapas necessária.");
+    }
     // token inválido/expirado -> volta pro login
     if (typeof sair === "function") sair();
     throw new Error("Sessão expirada. Entre de novo.");
@@ -176,6 +181,11 @@ function _precisaTrocarSenha(token) {
 }
 // entra no app OU força a definição de senha no 1º login
 function entrarApp() {
+  if (TOKEN && _mfaPendente(TOKEN)) {   // M12: 2FA ativo mas ainda em aal1 -> pede o código
+    document.getElementById("tela-login").style.display = "none";
+    abrirDesafioMfa();
+    return;
+  }
   if (TOKEN && _precisaTrocarSenha(TOKEN)) {
     document.getElementById("tela-login").style.display = "none";
     abrirNovaSenha("primeiro");
@@ -200,6 +210,7 @@ async function iniciar() {
   const salvo = localStorage.getItem("sb_token");
   if (salvo) {
     TOKEN = salvo;
+    if (_mfaPendente(TOKEN)) { entrarApp(); return; }   // M12: abre o desafio com o token salvo
     try {
       await pedir("/saldo-livre");   // valida o token com o back
       entrarApp();
@@ -325,6 +336,123 @@ async function trocarSenha() {
   } catch (e) { aviso(e.message, "erro"); }
 }
 
+// ===== M12: verificação em duas etapas (2FA/TOTP via Supabase Auth) =====
+// O flag que a trava do backend lê fica em app_metadata (só service_role escreve); o
+// enroll/challenge/verify do fator TOTP vai direto no Supabase com o token do usuário.
+function _mfaPendente(token) {
+  const p = _jwtPayload(token); const am = p.app_metadata || {};
+  return am.mfa_ativo === true && (p.aal || "aal1") !== "aal2";
+}
+async function _supaAuth(path, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign(
+    { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + TOKEN },
+    opts.headers || {});
+  const r = await fetch(SUPABASE_URL + path, opts);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.msg || d.error_description || d.error || d.message || "Erro no Supabase.");
+  return d;
+}
+// painel em Configurações
+async function carregarMfa() {
+  const est = document.getElementById("mfa-estado");
+  const bAtivar = document.getElementById("mfa-btn-ativar");
+  const bDesativar = document.getElementById("mfa-btn-desativar");
+  if (!est) return;
+  document.getElementById("mfa-enroll").style.display = "none";
+  est.innerHTML = '<span class="sub">Carregando…</span>';
+  bAtivar.style.display = "none"; bDesativar.style.display = "none";
+  try {
+    const u = await _supaAuth("/auth/v1/user", { method: "GET" });
+    const verif = (u.factors || []).some(f => f.factor_type === "totp" && f.status === "verified");
+    if (verif) {
+      est.innerHTML = '<span style="color:var(--verde)">✅ 2FA ativado — o login pede o código do app.</span>';
+      bDesativar.style.display = "";
+    } else {
+      est.innerHTML = '<span class="sub">2FA desativado. Ative pra proteger o login com um app autenticador (Google Authenticator, Authy…).</span>';
+      bAtivar.style.display = "";
+    }
+  } catch (e) { est.innerHTML = '<span style="color:var(--vermelho)">' + e.message + '</span>'; }
+}
+let _mfaFactorId = null;
+async function ativarMfa() {
+  document.getElementById("mfa-erro").textContent = "";
+  try {
+    // remove fatores TOTP não verificados (evita colisão de nome num novo cadastro)
+    try {
+      const u = await _supaAuth("/auth/v1/user", { method: "GET" });
+      for (const f of (u.factors || [])) {
+        if (f.factor_type === "totp" && f.status !== "verified") {
+          try { await _supaAuth("/auth/v1/factors/" + f.id, { method: "DELETE" }); } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    const d = await _supaAuth("/auth/v1/factors", { method: "POST", body: JSON.stringify({ factor_type: "totp", friendly_name: "Autenticador" }) });
+    _mfaFactorId = d.id;
+    const qr = ((d.totp && d.totp.qr_code) || "").trim();
+    document.getElementById("mfa-qr").innerHTML =
+      qr.startsWith("<svg") ? qr : (qr ? '<img alt="QR" width="180" height="180" src="' + qr + '">' : '');
+    document.getElementById("mfa-secret").textContent = (d.totp && d.totp.secret) || "";
+    document.getElementById("mfa-code").value = "";
+    document.getElementById("mfa-enroll").style.display = "";
+    document.getElementById("mfa-btn-ativar").style.display = "none";
+    document.getElementById("mfa-code").focus();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function confirmarMfa() {
+  const code = (document.getElementById("mfa-code").value || "").trim();
+  const erro = document.getElementById("mfa-erro"); erro.textContent = "";
+  if (!/^\d{6}$/.test(code)) { erro.textContent = "Digite o código de 6 dígitos do app."; return; }
+  try {
+    const ch = await _supaAuth("/auth/v1/factors/" + _mfaFactorId + "/challenge", { method: "POST" });
+    const v = await _supaAuth("/auth/v1/factors/" + _mfaFactorId + "/verify",
+      { method: "POST", body: JSON.stringify({ challenge_id: ch.id, code }) });
+    if (v.access_token) { TOKEN = v.access_token; try { localStorage.setItem("sb_token", TOKEN); } catch (e) {} }  // vira aal2
+    await pedir("/mfa/ativar", { method: "POST" });   // liga o flag no backend (app_metadata)
+    aviso("2FA ativado! No próximo login vai pedir o código.", "ok");
+    carregarMfa();
+  } catch (e) { erro.textContent = e.message || "Código inválido. Tente de novo."; }
+}
+async function desativarMfa() {
+  if (!(await confirmar({ titulo: "Desativar 2FA?", texto: "Você deixa de precisar do código no login. Dá pra reativar quando quiser.", rotulo: "Desativar", icone: "alerta" }))) return;
+  try {
+    await pedir("/mfa/desativar", { method: "POST" });
+    aviso("2FA desativado.", "ok");
+    carregarMfa();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+// desafio no login (aal1 -> aal2)
+let _mfaLoginFactorId = null;
+async function abrirDesafioMfa() {
+  document.getElementById("tela-login").style.display = "none";
+  const ns = document.getElementById("tela-nova-senha"); if (ns) ns.style.display = "none";
+  document.getElementById("mfa-login-erro").textContent = "";
+  document.getElementById("mfa-login-code").value = "";
+  document.getElementById("tela-mfa").style.display = "flex";
+  try {
+    const u = await _supaAuth("/auth/v1/user", { method: "GET" });
+    const f = (u.factors || []).find(x => x.factor_type === "totp" && x.status === "verified");
+    if (!f) { document.getElementById("tela-mfa").style.display = "none"; carregarTudo(); return; }
+    _mfaLoginFactorId = f.id;
+    document.getElementById("mfa-login-code").focus();
+  } catch (e) { document.getElementById("mfa-login-erro").textContent = "Não consegui iniciar a verificação. Saia e entre de novo."; }
+}
+async function confirmarDesafioMfa() {
+  const code = (document.getElementById("mfa-login-code").value || "").trim();
+  const erro = document.getElementById("mfa-login-erro"); erro.textContent = "";
+  if (!/^\d{6}$/.test(code)) { erro.textContent = "Digite o código de 6 dígitos."; return; }
+  const botao = document.getElementById("mfa-login-botao"); botao.disabled = true; botao.textContent = "Verificando...";
+  try {
+    const ch = await _supaAuth("/auth/v1/factors/" + _mfaLoginFactorId + "/challenge", { method: "POST" });
+    const v = await _supaAuth("/auth/v1/factors/" + _mfaLoginFactorId + "/verify",
+      { method: "POST", body: JSON.stringify({ challenge_id: ch.id, code }) });
+    if (v.access_token) { TOKEN = v.access_token; try { localStorage.setItem("sb_token", TOKEN); } catch (e) {} }
+    document.getElementById("tela-mfa").style.display = "none";
+    entrarApp();   // agora aal2 -> segue pro app (ou cai no precisa_trocar_senha)
+  } catch (e) { erro.textContent = e.message || "Código inválido."; }
+  finally { botao.disabled = false; botao.textContent = "Verificar"; }
+}
+
 // ===== M11: Usuários (admin) =====
 function fmtDataHora(iso) {
   if (!iso) return "—";
@@ -356,6 +484,7 @@ async function carregarUsuarios() {
       acoes = IS_SUPER ? '<span class="sub">(você)</span>' : '<span class="sub">super admin</span>';
     } else {
       const reset = `<button class="perigo" onclick="resetarSenhaUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Resetar senha</button>`;
+      const resetMfa = `<button class="perigo" onclick="resetarMfaUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Resetar 2FA</button>`;
       const bloq = u.bloqueado
         ? `<button class="perigo" onclick="setBloqueioUsuario('${escAttr(u.id)}','${escAttr(u.email)}',false)">Desbloquear</button>`
         : `<button class="perigo" onclick="setBloqueioUsuario('${escAttr(u.id)}','${escAttr(u.email)}',true)">Bloquear</button>`;
@@ -366,7 +495,7 @@ async function carregarUsuarios() {
           : `<button class="perigo" onclick="promoverUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Tornar admin</button>`;
         superAcoes += `<button class="perigo" style="color:var(--vermelho)" onclick="apagarUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Apagar</button>`;
       }
-      acoes = reset + bloq + superAcoes;
+      acoes = reset + resetMfa + bloq + superAcoes;
     }
     return `<div class="item" style="align-items:flex-start;flex-direction:column;gap:8px">
       <div style="display:flex;justify-content:space-between;width:100%;gap:8px;align-items:center">
@@ -432,6 +561,14 @@ async function rebaixarUsuario(id, email) {   // M11.2: só o super
   try {
     await pedir(`/admin/usuarios/${id}/rebaixar`, { method: "POST" });
     aviso("Admin rebaixado a usuário padrão.", "ok");
+    carregarUsuarios();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function resetarMfaUsuario(id, email) {   // M12: anti-lockout (super qualquer um; admin só padrão)
+  if (!(await confirmar({ titulo: "Resetar 2FA de " + email + "?", texto: "Remove o autenticador da pessoa (útil se ela perdeu o acesso ao app). Ela passa a entrar só com a senha e pode reativar o 2FA depois.", rotulo: "Resetar 2FA", icone: "alerta" }))) return;
+  try {
+    await pedir(`/admin/usuarios/${id}/resetar-mfa`, { method: "POST" });
+    aviso("2FA resetado.", "ok");
     carregarUsuarios();
   } catch (e) { aviso(e.message, "erro"); }
 }
@@ -2949,7 +3086,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     if (tela === "comparar") carregarComparar();    // M3: comparação carrega ao abrir
     if (tela === "cartoes") carregarCartoes();       // M5: cartões carregam ao abrir
     if (tela === "insights") carregarInsights();     // M7: insights carregam ao abrir
-    if (tela === "configuracoes") carregarConfig();  // M8: config de alertas + preferências
+    if (tela === "configuracoes") { carregarConfig(); carregarMfa(); }  // M8 config + M12 estado do 2FA
     if (tela === "usuarios") carregarUsuarios();     // M11: gestão de usuários (admin)
     if (tela === "assistente") carregarAssistente(); // M9: chat assistente
   });
