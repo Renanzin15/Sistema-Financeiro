@@ -2296,3 +2296,22 @@ inválido avisa, registrar-webhook só super + setWebhook com a URL certa, desco
 **Falta o Renan fazer (fundação no ar):** criar o bot no BotFather → `TELEGRAM_BOT_TOKEN` no Render →
 Configurações → Registrar webhook → colar a `cron_url` num cron grátis (cron-job.org, POST, 1x/dia). Fases
 2-4 (registrar por mensagem, assistente, foto/OCR) ficam pra depois.
+
+## Etapa 45 — Telegram Fase 2: registrar por mensagem (25/09/2026)
+
+O bot entende linguagem natural e registra — SEMPRE com confirmação (botões inline Sim/Não), então nada
+entra sem o "Sim". Escopo escolhido pelo Renan: gastos + entradas + caixinhas.
+
+**Entende:** "gastei/paguei/comprei 50 no mercado" -> saída livre (categoria automática); "recebi/ganhei 1700
+salário" -> entrada; "guardei 100 na reserva" -> alocação na caixinha; "gastei 30 da reserva" -> pagamento
+da caixinha (casa o nome por substring). Valor aceita BR (1.234,56 / 50 / 50,00 / 1.500=milhar).
+
+**Backend:** `_tg_parse` (regex de valor + intenção + nome da caixinha), `_tg_confirmar` (manda resumo +
+teclado inline), `_tg_callback` (trata Sim/Não; no Sim chama `_tg_registrar`), `_tg_registrar` (aplica a MESMA
+trava de saldo do `criar_lancamento` e insere o lançamento). Pendências ficam num dict em memória por chat_id
+(curta duração, 10 min). Webhook passou a aceitar `callback_query`. Bug pego a tempo: caixinhas NÃO têm coluna
+`arquivada` (só contas) — removido o filtro.
+
+**Testado local: 18/18** — parse dos 4 tipos + formatos de valor, confirmação, callback registrando de verdade
+(entrada/gasto/alocação/pagamento no banco), cancelar, trava de saldo (bloqueia sem grana), não-vinculado.
+Fase 1 revalidada 17/17.

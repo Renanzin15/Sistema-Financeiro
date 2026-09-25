@@ -3047,12 +3047,13 @@ def resetar_mfa(uid: str, dados: dict = Depends(exigir_admin)):
 # O usuário conecta pelo app (código único de curta duração -> deep link do bot). O token do bot
 # e o secret do webhook ficam SÓ no backend (env do Render). Cada usuário vincula o próprio chat.
 # ========================================================
-import hashlib as _hashlib, secrets as _secrets
+import hashlib as _hashlib, secrets as _secrets, time as _time
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 # secret do webhook: do ambiente, ou derivado do token (estável) — usado no path e no header do Telegram
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET") or (
     _hashlib.sha256(("wh:" + TELEGRAM_BOT_TOKEN).encode()).hexdigest()[:32] if TELEGRAM_BOT_TOKEN else "")
 _tg_username = None
+_tg_pendentes = {}   # Fase 2: chat_id -> ação aguardando confirmação (em memória, curta duração)
 
 def _telegram_api(metodo, payload=None):
     if not TELEGRAM_BOT_TOKEN:
@@ -3102,7 +3103,142 @@ def _texto_avisos_usuario(uid):
         linhas.append("• <b>" + _esc_html(a.get("titulo", "")) + "</b> — " + _esc_html(a.get("mensagem", "")))
     return "\n".join(linhas)
 
+# ---- Fase 2: entender e registrar por mensagem (sempre com confirmação) ----
+def _tg_user_por_chat(chat_id):
+    con = conectar()
+    row = con.execute("SELECT user_id FROM telegram WHERE chat_id=?", (str(chat_id),)).fetchone()
+    con.close()
+    return row[0] if row else None
+
+def _num_para_centavos(s):
+    s = (s or "").strip().lower().replace(" ", "").replace("r$", "")
+    if "," in s:                       # BR: 1.234,56 -> ponto é milhar, vírgula decimal
+        s = s.replace(".", "").replace(",", ".")
+    elif s.count(".") == 1 and len(s.rsplit(".", 1)[1]) == 3:
+        s = s.replace(".", "")         # "1.500" (milhar) e não 1,5
+    try:
+        return int(round(float(s) * 100))
+    except Exception:
+        return 0
+
+def _tg_extrai_caixinha(texto, preps):
+    m = re.search(r"\b(?:" + preps + r")\s+(.+)$", texto.strip(), re.I)
+    return re.sub(r"[.!?]+$", "", m.group(1)).strip() if m else ""
+
+def _tg_caixinha_por_nome(con, uid, nome):
+    if not nome:
+        return (None, None)
+    n = nome.strip().lower()
+    for cid, cn in con.execute("SELECT id, nome FROM caixinhas WHERE user_id=?", (uid,)).fetchall():
+        low = (cn or "").lower()
+        if low == n or n in low or low in n:
+            return (cid, cn)
+    return (None, None)
+
+def _tg_descricao(texto):
+    t = re.sub(r"\b(gastei|paguei|comprei|gasto|recebi|ganhei|entrou|caiu|guardei|guardar|tirei|usei)\b", "", texto, flags=re.I)
+    t = re.sub(r"r?\$?\s*\d[\d.,]*", "", t, count=1)
+    t = re.sub(r"\b(no|na|em|de|do|da|pra|para|com|reais?|pila|conto|real)\b", " ", t, flags=re.I)
+    return re.sub(r"\s+", " ", t).strip(" .,-")[:80]
+
+def _tg_parse(texto, uid):
+    m = re.search(r"\d[\d.,]*", texto)
+    if not m:
+        return None
+    valor = _num_para_centavos(m.group(0))
+    if valor <= 0:
+        return None
+    t = texto.lower()
+    con = conectar()
+    try:
+        if re.search(r"\bguard", t):                       # guardar em caixinha
+            nome = _tg_extrai_caixinha(texto, "na|no|em|para|pra")
+            cid, cn = _tg_caixinha_por_nome(con, uid, nome)
+            if not cid:
+                return {"erro": f'Não achei a caixinha "{nome or "—"}". Confere o nome no app.'}
+            return {"tipo": "alocacao", "valor_centavos": valor, "descricao": "", "caixinha_id": cid, "caixinha_nome": cn}
+        if re.search(r"\b(gast|paguei|tirei|usei)", t) and re.search(r"\bd[oa]\s+\w", t):   # gastar DE uma caixinha
+            nome = _tg_extrai_caixinha(texto, "d[oa]")
+            cid, cn = _tg_caixinha_por_nome(con, uid, nome)
+            if cid:
+                return {"tipo": "pagamento", "valor_centavos": valor, "descricao": _tg_descricao(texto), "caixinha_id": cid, "caixinha_nome": cn}
+        if re.search(r"\b(recebi|ganhei|entrou|caiu|sal[aá]rio|receita|pix)\b", t):
+            return {"tipo": "entrada", "valor_centavos": valor, "descricao": _tg_descricao(texto) or "Entrada"}
+        return {"tipo": "saida_livre", "valor_centavos": valor, "descricao": _tg_descricao(texto) or "Gasto"}
+    finally:
+        con.close()
+
+def _tg_resumo_acao(a):
+    v = ("R$ %.2f" % (a["valor_centavos"] / 100)).replace(".", ",")
+    d = a.get("descricao") or ""
+    if a["tipo"] == "alocacao":
+        return f"📥 Guardar <b>{v}</b> na caixinha <b>{_esc_html(a.get('caixinha_nome',''))}</b>"
+    if a["tipo"] == "pagamento":
+        return f"📤 Gasto de <b>{v}</b> da caixinha <b>{_esc_html(a.get('caixinha_nome',''))}</b>" + (f" — {_esc_html(d)}" if d else "")
+    if a["tipo"] == "entrada":
+        return f"💰 Entrada de <b>{v}</b>" + (f" — {_esc_html(d)}" if d else "")
+    return f"🛒 Saída de <b>{v}</b>" + (f" — {_esc_html(d)}" if d else "")
+
+def _tg_confirmar(chat_id, acao):
+    teclado = {"inline_keyboard": [[{"text": "✅ Sim", "callback_data": "tg_ok"},
+                                     {"text": "❌ Não", "callback_data": "tg_no"}]]}
+    try:
+        _telegram_api("sendMessage", {"chat_id": chat_id, "text": "Confirmar?\n" + _tg_resumo_acao(acao),
+                                      "parse_mode": "HTML", "reply_markup": teclado})
+    except HTTPException:
+        pass
+
+def _tg_registrar(uid, acao):
+    con = conectar()
+    try:
+        tipo = acao["tipo"]; valor = acao["valor_centavos"]
+        if tipo in ("alocacao", "saida_livre"):
+            livre = calcular_saldo_livre(con, uid)
+            if valor > livre:
+                raise HTTPException(status_code=400, detail=("Saldo livre insuficiente (você tem R$ %.2f)." % (livre / 100)))
+        elif tipo == "pagamento":
+            cid = acao.get("caixinha_id")
+            if not cid:
+                raise HTTPException(status_code=400, detail="Caixinha não encontrada.")
+            saldo = saldo_da_caixinha(con, uid, cid)
+            if valor > saldo:
+                raise HTTPException(status_code=400, detail=("Saldo insuficiente na caixinha (R$ %.2f)." % (saldo / 100)))
+        categoria = acao.get("categoria")
+        if tipo == "saida_livre" and not categoria:
+            categoria = sugerir_categoria(con, uid, acao.get("descricao", ""))
+        con.execute(
+            "INSERT INTO lancamentos (tipo, valor_centavos, descricao, caixinha_id, data, categoria, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (tipo, valor, acao.get("descricao", ""), acao.get("caixinha_id"), data_hoje(), categoria, uid))
+        con.commit()
+    finally:
+        con.close()
+
+def _tg_callback(cb):
+    chat_id = ((cb.get("message") or {}).get("chat") or {}).get("id")
+    try:
+        _telegram_api("answerCallbackQuery", {"callback_query_id": cb.get("id")})
+    except HTTPException:
+        pass
+    if not chat_id:
+        return
+    pend = _tg_pendentes.pop(chat_id, None)
+    if not pend or (_time.time() - pend.get("ts", 0) > 600):
+        _telegram_enviar(chat_id, "Essa confirmação expirou. Manda a mensagem de novo. 🙂"); return
+    if cb.get("data") == "tg_no":
+        _telegram_enviar(chat_id, "Ok, cancelado. 👍"); return
+    uid = _tg_user_por_chat(chat_id)
+    if not uid:
+        _telegram_enviar(chat_id, "Sua conta não está vinculada. Reconecte no app."); return
+    try:
+        _tg_registrar(uid, pend)
+        _telegram_enviar(chat_id, "✅ Registrado! " + _tg_resumo_acao(pend))
+    except HTTPException as e:
+        _telegram_enviar(chat_id, "⚠️ " + str(e.detail))
+
 def _tratar_update_telegram(update):
+    cb = update.get("callback_query")
+    if cb:
+        _tg_callback(cb); return
     msg = update.get("message") or update.get("edited_message") or {}
     chat_id = (msg.get("chat") or {}).get("id")
     texto = (msg.get("text") or "").strip()
@@ -3123,9 +3259,24 @@ def _tratar_update_telegram(update):
             con.close(); _telegram_enviar(chat_id, "Esse código expirou. Gere um novo no app."); return
         con.execute("UPDATE telegram SET chat_id=?, codigo=NULL, expira=NULL WHERE user_id=?", (str(chat_id), uid))
         con.commit(); con.close()
-        _telegram_enviar(chat_id, "✅ <b>Conectado!</b> Sua conta do Meu Orçamento está vinculada a este chat. Você vai receber os avisos por aqui.")
+        _telegram_enviar(chat_id, "✅ <b>Conectado!</b> Sua conta está vinculada. Você recebe avisos por aqui e pode registrar escrevendo, tipo <b>gastei 50 no mercado</b>.")
         return
-    _telegram_enviar(chat_id, "Recebi! Por enquanto eu só conecto a conta e mando avisos — em breve dá pra registrar gastos, perguntar e mandar foto de comprovante por aqui. 🚧")
+    uid = _tg_user_por_chat(chat_id)
+    if not uid:
+        _telegram_enviar(chat_id, "Conecte sua conta primeiro: no app → <b>Configurações → Conectar Telegram</b>. 🙂")
+        return
+    if texto.startswith("/"):
+        _telegram_enviar(chat_id, "Sem comandos por enquanto — é só escrever naturalmente, tipo <b>gastei 50 no mercado</b> ou <b>guardei 100 na reserva</b>.")
+        return
+    acao = _tg_parse(texto, uid)
+    if not acao:
+        _telegram_enviar(chat_id, "Não entendi 🤔. Tente: <b>gastei 50 no mercado</b>, <b>recebi 1700 salário</b>, <b>guardei 100 na reserva</b>, <b>gastei 30 da reserva</b>.")
+        return
+    if acao.get("erro"):
+        _telegram_enviar(chat_id, "🤔 " + acao["erro"]); return
+    acao["ts"] = _time.time()
+    _tg_pendentes[chat_id] = acao
+    _tg_confirmar(chat_id, acao)
 
 class TgAvisos(BaseModel):
     avisos: bool
@@ -3174,7 +3325,7 @@ def telegram_registrar_webhook(dados: dict = Depends(exigir_super)):
     if not base:
         raise HTTPException(status_code=400, detail="Não achei a URL pública (defina APP_URL nas env do Render).")
     url = base + "/telegram/webhook/" + TELEGRAM_WEBHOOK_SECRET
-    r = _telegram_api("setWebhook", {"url": url, "secret_token": TELEGRAM_WEBHOOK_SECRET, "allowed_updates": ["message"]})
+    r = _telegram_api("setWebhook", {"url": url, "secret_token": TELEGRAM_WEBHOOK_SECRET, "allowed_updates": ["message", "callback_query"]})
     # URL pro cron externo (cron-job.org) chamar 1x/dia — carrega o secret, então só o super vê
     cron_url = base + "/telegram/disparar-avisos?secret=" + TELEGRAM_WEBHOOK_SECRET
     return {"ok": bool(r.get("ok", True)), "resultado": r.get("description") or "webhook registrado", "cron_url": cron_url}
