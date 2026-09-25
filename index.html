@@ -492,6 +492,30 @@
       </div>
     </div>
     <div class="painel">
+      <h2>Telegram 📲</h2>
+      <div class="sub" style="margin-bottom:12px">Conecte um bot do Telegram pra receber seus avisos por lá (e, em breve, registrar gastos, perguntar e mandar foto de comprovante por mensagem). Opcional.</div>
+      <div id="tg-estado" style="margin-bottom:12px"></div>
+      <button class="acao" id="tg-btn-conectar" onclick="conectarTelegram()" style="display:none">Conectar Telegram</button>
+      <button class="perigo" id="tg-btn-desconectar" onclick="desconectarTelegram()" style="display:none">Desconectar</button>
+      <div id="tg-conectar-box" style="display:none;margin-top:12px">
+        <div class="sub" style="margin-bottom:8px">Toque no botão abaixo pra abrir o bot no Telegram e confirme com <b>Iniciar</b>. O código vale 15 minutos.</div>
+        <a id="tg-link" href="#" target="_blank" rel="noopener" class="acao" style="display:inline-block;text-decoration:none">Abrir bot no Telegram</a>
+        <div class="sub" style="margin-top:8px">Ou procure o bot <code id="tg-bot"></code> e envie: <code id="tg-cmd"></code></div>
+      </div>
+      <div class="cfg-linha" id="tg-avisos-linha" style="display:none;margin-top:12px">
+        <label class="sw"><input type="checkbox" id="tg-avisos" onchange="toggleTelegramAvisos()"><span></span></label>
+        <div class="cfg-txt"><b>Receber avisos no Telegram</b><span>Alertas de contas, orçamento e saldo chegam no seu chat.</span></div>
+      </div>
+      <div id="tg-admin" style="display:none;margin-top:14px;border-top:1px solid var(--borda);padding-top:12px">
+        <div class="sub" style="margin-bottom:8px">Admin: depois de configurar o <code>TELEGRAM_BOT_TOKEN</code> no Render, registre o webhook (só 1 vez):</div>
+        <button class="acao" onclick="registrarWebhookTelegram()">Registrar webhook</button>
+        <div id="tg-cron-box" style="display:none;margin-top:10px">
+          <div class="sub" style="margin-bottom:6px">✅ Webhook ok. Cole esta URL num cron grátis (ex.: cron-job.org), método <b>POST</b>, 1x/dia:</div>
+          <input id="tg-cron-url" readonly onclick="this.select()" style="width:100%;font-size:12px" />
+        </div>
+      </div>
+    </div>
+    <div class="painel">
       <h2>Preferências ⚙️</h2>
       <div class="cfg-linha">
         <label class="sw"><input type="checkbox" id="pref-menu" onchange="togglePrefMenu()"><span></span></label>

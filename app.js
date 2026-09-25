@@ -453,6 +453,60 @@ async function confirmarDesafioMfa() {
   finally { botao.disabled = false; botao.textContent = "Verificar"; }
 }
 
+// ===== Telegram (Fase 1): conectar / avisos =====
+async function carregarTelegram() {
+  const est = document.getElementById("tg-estado"); if (!est) return;
+  ["tg-btn-conectar", "tg-btn-desconectar", "tg-conectar-box", "tg-avisos-linha", "tg-admin"].forEach(i => { const e = document.getElementById(i); if (e) e.style.display = "none"; });
+  est.innerHTML = '<span class="sub">Carregando…</span>';
+  let s;
+  try { s = await pedir("/telegram/status"); } catch (e) { est.innerHTML = '<span style="color:var(--vermelho)">' + e.message + '</span>'; return; }
+  if (IS_SUPER) document.getElementById("tg-admin").style.display = "";
+  if (!s.configurado) {
+    est.innerHTML = '<span class="sub">O bot ainda não foi configurado no servidor (falta o <b>TELEGRAM_BOT_TOKEN</b> no Render).</span>';
+    return;
+  }
+  if (s.conectado) {
+    est.innerHTML = '<span style="color:var(--verde)">✅ Telegram conectado.</span>';
+    document.getElementById("tg-btn-desconectar").style.display = "";
+    const av = document.getElementById("tg-avisos"); if (av) av.checked = !!s.avisos;
+    document.getElementById("tg-avisos-linha").style.display = "";
+  } else {
+    est.innerHTML = '<span class="sub">Não conectado.</span>';
+    document.getElementById("tg-btn-conectar").style.display = "";
+  }
+}
+async function conectarTelegram() {
+  try {
+    const d = await pedir("/telegram/conectar", { method: "POST" });
+    const link = document.getElementById("tg-link");
+    if (d.link) { link.href = d.link; link.style.display = "inline-block"; } else { link.style.display = "none"; }
+    document.getElementById("tg-bot").textContent = d.bot ? ("@" + d.bot) : "(bot)";
+    document.getElementById("tg-cmd").textContent = "/start " + d.codigo;
+    document.getElementById("tg-conectar-box").style.display = "";
+    if (d.link) window.open(d.link, "_blank", "noopener");
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function desconectarTelegram() {
+  if (!(await confirmar({ titulo: "Desconectar o Telegram?", texto: "Você deixa de receber avisos por lá. Dá pra reconectar quando quiser.", rotulo: "Desconectar", icone: "alerta" }))) return;
+  try { await pedir("/telegram/desconectar", { method: "POST" }); aviso("Telegram desconectado.", "ok"); carregarTelegram(); }
+  catch (e) { aviso(e.message, "erro"); }
+}
+async function toggleTelegramAvisos() {
+  const on = document.getElementById("tg-avisos").checked;
+  try { await pedir("/telegram/avisos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ avisos: on }) }); aviso(on ? "Avisos ligados." : "Avisos desligados.", "ok"); }
+  catch (e) { aviso(e.message, "erro"); carregarTelegram(); }
+}
+async function registrarWebhookTelegram() {
+  try {
+    const r = await pedir("/telegram/registrar-webhook", { method: "POST" });
+    aviso("Webhook: " + (r.resultado || "registrado"), "ok");
+    if (r.cron_url) {
+      document.getElementById("tg-cron-url").value = r.cron_url;
+      document.getElementById("tg-cron-box").style.display = "";
+    }
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
 // ===== M11: Usuários (admin) =====
 function fmtDataHora(iso) {
   if (!iso) return "—";
@@ -3086,7 +3140,7 @@ document.querySelectorAll(".item-menu").forEach(item => {
     if (tela === "comparar") carregarComparar();    // M3: comparação carrega ao abrir
     if (tela === "cartoes") carregarCartoes();       // M5: cartões carregam ao abrir
     if (tela === "insights") carregarInsights();     // M7: insights carregam ao abrir
-    if (tela === "configuracoes") { carregarConfig(); carregarMfa(); }  // M8 config + M12 estado do 2FA
+    if (tela === "configuracoes") { carregarConfig(); carregarMfa(); carregarTelegram(); }  // M8 + M12 + Telegram
     if (tela === "usuarios") carregarUsuarios();     // M11: gestão de usuários (admin)
     if (tela === "assistente") carregarAssistente(); // M9: chat assistente
   });

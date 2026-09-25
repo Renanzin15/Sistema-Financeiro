@@ -2265,3 +2265,34 @@ testes: `_carregar_env_local` faz `setdefault`, então pra forçar SQLite tem qu
 
 **Pendente:** habilitar TOTP no Supabase (Authentication → Multi-Factor) e teste real do fluxo (QR + código
 de um app autenticador) no app publicado — não dá pra automatizar.
+
+## Etapa 44 — Telegram, Fase 1: fundação (vínculo + webhook + avisos) (25/09/2026)
+
+Início do "auxiliar por Telegram" (bot completo virá em fases). Fase 1 = a fundação: conectar a conta com
+segurança + webhook + avisos por cron externo. Renan escolheu: bot completo (4 capacidades) mas construído
+por partes; código primeiro (bot/token depois); avisos disparados por cron externo grátis.
+
+**Segurança do vínculo:** o app gera um **código único de 15 min** atrelado ao usuário logado; o usuário abre
+o bot pelo deep link `t.me/<bot>?start=<código>` e o webhook casa código→user_id, gravando o `chat_id`.
+Assim ninguém controla a conta pelo chat sem estar logado no app antes. Token do bot e secret do webhook só
+no backend. Webhook protegido por secret (no path E no header `X-Telegram-Bot-Api-Secret-Token`).
+
+**DB:** tabela `telegram (user_id PK, chat_id, codigo, expira, avisos)` — criada no boot (SQLite + Postgres).
+
+**Backend (`main.py`):** `TELEGRAM_BOT_TOKEN` (env), `TELEGRAM_WEBHOOK_SECRET` (env ou derivado do token).
+Rotas: `GET /telegram/status`, `POST /telegram/conectar` (gera código + deep link via getMe), `/desconectar`,
+`/avisos` (toggle), `POST /telegram/webhook/{secret}` (trata `/start código` e vincula; valida secret),
+`POST /telegram/registrar-webhook` (só super — chama setWebhook e devolve a `cron_url` pronta),
+`POST /telegram/disparar-avisos?secret=` (o cron externo chama; manda os alertas — reusa `gerar_alertas` —
+pra cada usuário vinculado com avisos on). URL pública vem de `RENDER_EXTERNAL_URL`/`APP_URL`.
+
+**Front (`app.js`+`index.html`):** painel "Telegram" em Configurações — Conectar (abre o deep link), Desconectar,
+toggle de avisos, e (super) botão "Registrar webhook" que mostra a URL do cron pra copiar.
+
+**Testado local (SQLite + Telegram mockado): 17/17** — status, conectar (código+link), webhook vinculando +
+mensagem "Conectado", secret errado 403, avisos on/off, disparar-avisos (cron, 403 sem secret), código
+inválido avisa, registrar-webhook só super + setWebhook com a URL certa, desconectar.
+
+**Falta o Renan fazer (fundação no ar):** criar o bot no BotFather → `TELEGRAM_BOT_TOKEN` no Render →
+Configurações → Registrar webhook → colar a `cron_url` num cron grátis (cron-job.org, POST, 1x/dia). Fases
+2-4 (registrar por mensagem, assistente, foto/OCR) ficam pra depois.

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Body, Header
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -135,6 +135,8 @@ DDL_POSTGRES = [
     "CREATE INDEX IF NOT EXISTS regras_salario_user_idx ON regras_salario(user_id)",
     "CREATE INDEX IF NOT EXISTS entradas_recorrentes_user_idx ON entradas_recorrentes(user_id)",
     "CREATE INDEX IF NOT EXISTS licencas_user_idx ON licencas(user_id)",
+    # Telegram (Fase 1): vínculo user_id <-> chat_id + código de conexão + toggle de avisos.
+    "CREATE TABLE IF NOT EXISTS telegram (user_id UUID PRIMARY KEY, chat_id TEXT, codigo TEXT, expira TEXT, avisos INTEGER DEFAULT 1)",
 ]
 
 class _ConexaoPG:
@@ -332,6 +334,16 @@ def criar_tabelas():
             descricao_norm TEXT,
             categoria TEXT,
             user_id TEXT
+        )
+    """)
+    # Telegram (Fase 1): vínculo user_id <-> chat_id + código de conexão + toggle de avisos.
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS telegram (
+            user_id TEXT PRIMARY KEY,
+            chat_id TEXT,
+            codigo TEXT,
+            expira TEXT,
+            avisos INTEGER DEFAULT 1
         )
     """)
     # (categorias padrão agora são semeadas POR USUÁRIO em _garantir_usuario)
@@ -3028,6 +3040,177 @@ def resetar_mfa(uid: str, dados: dict = Depends(exigir_admin)):
     _apagar_totp(uid, alvo)
     _set_mfa_flag(uid, False, alvo)
     return {"status": "2FA resetado"}
+
+
+# ========================================================
+# TELEGRAM (Fase 1) — vínculo seguro + webhook + avisos por cron externo
+# O usuário conecta pelo app (código único de curta duração -> deep link do bot). O token do bot
+# e o secret do webhook ficam SÓ no backend (env do Render). Cada usuário vincula o próprio chat.
+# ========================================================
+import hashlib as _hashlib, secrets as _secrets
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+# secret do webhook: do ambiente, ou derivado do token (estável) — usado no path e no header do Telegram
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET") or (
+    _hashlib.sha256(("wh:" + TELEGRAM_BOT_TOKEN).encode()).hexdigest()[:32] if TELEGRAM_BOT_TOKEN else "")
+_tg_username = None
+
+def _telegram_api(metodo, payload=None):
+    if not TELEGRAM_BOT_TOKEN:
+        raise HTTPException(status_code=500, detail="Telegram não configurado no servidor (falta TELEGRAM_BOT_TOKEN).")
+    import urllib.request, urllib.error
+    url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/" + metodo
+    req = urllib.request.Request(url, data=json.dumps(payload or {}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        try: det = json.loads(e.read().decode()).get("description")
+        except Exception: det = None
+        raise HTTPException(status_code=400, detail="Telegram: " + (det or f"erro {e.code}"))
+    except Exception:
+        raise HTTPException(status_code=502, detail="Não consegui falar com o Telegram agora.")
+
+def _esc_html(s):
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+def _telegram_enviar(chat_id, texto):
+    try:
+        _telegram_api("sendMessage", {"chat_id": chat_id, "text": texto, "parse_mode": "HTML",
+                                      "disable_web_page_preview": True})
+        return True
+    except HTTPException:
+        return False
+
+def _telegram_username():
+    global _tg_username
+    if _tg_username is None:
+        try: _tg_username = ((_telegram_api("getMe") or {}).get("result") or {}).get("username") or ""
+        except HTTPException: _tg_username = ""
+    return _tg_username
+
+def _texto_avisos_usuario(uid):
+    con = conectar()
+    try:
+        alertas = gerar_alertas(con, uid)
+    finally:
+        con.close()
+    if not alertas:
+        return None
+    linhas = ["🔔 <b>Seus avisos</b>"]
+    for a in alertas[:10]:
+        linhas.append("• <b>" + _esc_html(a.get("titulo", "")) + "</b> — " + _esc_html(a.get("mensagem", "")))
+    return "\n".join(linhas)
+
+def _tratar_update_telegram(update):
+    msg = update.get("message") or update.get("edited_message") or {}
+    chat_id = (msg.get("chat") or {}).get("id")
+    texto = (msg.get("text") or "").strip()
+    if not chat_id:
+        return
+    if texto.startswith("/start"):
+        partes = texto.split(maxsplit=1)
+        codigo = partes[1].strip() if len(partes) > 1 else ""
+        if not codigo:
+            _telegram_enviar(chat_id, "Olá! Para conectar sua conta, abra o app → <b>Configurações → Conectar Telegram</b> e toque no botão que aparece lá. 🙂")
+            return
+        con = conectar()
+        row = con.execute("SELECT user_id, expira FROM telegram WHERE codigo=?", (codigo,)).fetchone()
+        if not row:
+            con.close(); _telegram_enviar(chat_id, "Código inválido ou já usado. Gere um novo no app (Configurações → Conectar Telegram)."); return
+        uid, expira = row[0], row[1]
+        if expira and expira < datetime.now().isoformat():
+            con.close(); _telegram_enviar(chat_id, "Esse código expirou. Gere um novo no app."); return
+        con.execute("UPDATE telegram SET chat_id=?, codigo=NULL, expira=NULL WHERE user_id=?", (str(chat_id), uid))
+        con.commit(); con.close()
+        _telegram_enviar(chat_id, "✅ <b>Conectado!</b> Sua conta do Meu Orçamento está vinculada a este chat. Você vai receber os avisos por aqui.")
+        return
+    _telegram_enviar(chat_id, "Recebi! Por enquanto eu só conecto a conta e mando avisos — em breve dá pra registrar gastos, perguntar e mandar foto de comprovante por aqui. 🚧")
+
+class TgAvisos(BaseModel):
+    avisos: bool
+
+@app.get("/telegram/status")
+def telegram_status(user_id: str = Depends(exigir_login)):
+    con = conectar()
+    row = con.execute("SELECT chat_id, avisos FROM telegram WHERE user_id=?", (user_id,)).fetchone()
+    con.close()
+    return {"configurado": bool(TELEGRAM_BOT_TOKEN), "conectado": bool(row and row[0]),
+            "avisos": bool(row[1]) if row else True}
+
+@app.post("/telegram/conectar")
+def telegram_conectar(user_id: str = Depends(exigir_login)):
+    if not TELEGRAM_BOT_TOKEN:
+        raise HTTPException(status_code=500, detail="Telegram ainda não foi configurado no servidor.")
+    codigo = _secrets.token_urlsafe(8)
+    expira = (datetime.now() + timedelta(minutes=15)).isoformat()
+    con = conectar()
+    if con.execute("SELECT user_id FROM telegram WHERE user_id=?", (user_id,)).fetchone():
+        con.execute("UPDATE telegram SET codigo=?, expira=? WHERE user_id=?", (codigo, expira, user_id))
+    else:
+        con.execute("INSERT INTO telegram (user_id, chat_id, codigo, expira, avisos) VALUES (?, NULL, ?, ?, 1)",
+                    (user_id, codigo, expira))
+    con.commit(); con.close()
+    u = _telegram_username()
+    return {"codigo": codigo, "bot": u, "link": ("https://t.me/" + u + "?start=" + codigo) if u else ""}
+
+@app.post("/telegram/desconectar")
+def telegram_desconectar(user_id: str = Depends(exigir_login)):
+    con = conectar()
+    con.execute("UPDATE telegram SET chat_id=NULL, codigo=NULL, expira=NULL WHERE user_id=?", (user_id,))
+    con.commit(); con.close()
+    return {"status": "desconectado"}
+
+@app.post("/telegram/avisos")
+def telegram_toggle_avisos(item: TgAvisos, user_id: str = Depends(exigir_login)):
+    con = conectar()
+    con.execute("UPDATE telegram SET avisos=? WHERE user_id=?", (1 if item.avisos else 0, user_id))
+    con.commit(); con.close()
+    return {"avisos": item.avisos}
+
+@app.post("/telegram/registrar-webhook")
+def telegram_registrar_webhook(dados: dict = Depends(exigir_super)):
+    base = (os.environ.get("APP_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    if not base:
+        raise HTTPException(status_code=400, detail="Não achei a URL pública (defina APP_URL nas env do Render).")
+    url = base + "/telegram/webhook/" + TELEGRAM_WEBHOOK_SECRET
+    r = _telegram_api("setWebhook", {"url": url, "secret_token": TELEGRAM_WEBHOOK_SECRET, "allowed_updates": ["message"]})
+    # URL pro cron externo (cron-job.org) chamar 1x/dia — carrega o secret, então só o super vê
+    cron_url = base + "/telegram/disparar-avisos?secret=" + TELEGRAM_WEBHOOK_SECRET
+    return {"ok": bool(r.get("ok", True)), "resultado": r.get("description") or "webhook registrado", "cron_url": cron_url}
+
+@app.post("/telegram/webhook/{secret}")
+def telegram_webhook(secret: str, update: dict = Body(default={}),
+                     x_telegram_bot_api_secret_token: str = Header(default="")):
+    if not TELEGRAM_WEBHOOK_SECRET or secret != TELEGRAM_WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="proibido")
+    if x_telegram_bot_api_secret_token and x_telegram_bot_api_secret_token != TELEGRAM_WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="proibido")
+    try:
+        _tratar_update_telegram(update or {})
+    except Exception:
+        pass   # nunca devolve erro pro Telegram (senão ele reenvia em loop)
+    return {"ok": True}
+
+@app.post("/telegram/disparar-avisos")
+def telegram_disparar_avisos(secret: str = ""):
+    # chamado por um cron externo (cron-job.org): POST /telegram/disparar-avisos?secret=...
+    if not TELEGRAM_WEBHOOK_SECRET or secret != TELEGRAM_WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="proibido")
+    if not TELEGRAM_BOT_TOKEN:
+        raise HTTPException(status_code=500, detail="Telegram não configurado.")
+    con = conectar()
+    linhas = con.execute("SELECT user_id, chat_id FROM telegram WHERE chat_id IS NOT NULL AND avisos=1").fetchall()
+    con.close()
+    enviados = 0
+    for uid, chat_id in linhas:
+        try:
+            txt = _texto_avisos_usuario(uid)
+        except Exception:
+            txt = None
+        if txt and _telegram_enviar(chat_id, txt):
+            enviados += 1
+    return {"usuarios": len(linhas), "enviados": enviados}
 
 
 # ========================================================
