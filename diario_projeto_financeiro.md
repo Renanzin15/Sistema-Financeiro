@@ -2315,3 +2315,22 @@ trava de saldo do `criar_lancamento` e insere o lançamento). Pendências ficam 
 **Testado local: 18/18** — parse dos 4 tipos + formatos de valor, confirmação, callback registrando de verdade
 (entrada/gasto/alocação/pagamento no banco), cancelar, trava de saldo (bloqueia sem grana), não-vinculado.
 Fase 1 revalidada 17/17.
+
+## Etapa 46 — Telegram Fases 3 e 4: perguntar + foto de comprovante (25/09/2026)
+
+**Fase 3 (perguntar):** extraí o corpo do `/assistente` num helper `_assistente_resposta(con, user_id, q, ...)`
+(o endpoint virou fino, chamando o helper). No Telegram, `_tg_pergunta` mapeia linguagem natural -> chave do
+assistente ("quanto sobrou?"->sobra, "resumo", "quanto tenho a pagar?"->pagar, "posso comprar 200?"->posso_comprar
+com valor/parcelas, "quanto gastei em X"->gasto_categoria) e responde o número exato. Roteia ANTES do registro,
+pra "posso comprar 200" não virar gasto.
+
+**Fase 4 (foto):** o webhook detecta `photo`/`document`; `_telegram_baixar_arquivo` (getFile + download) pega o
+arquivo, roda o OCR (`ocr_texto_imagem`/`ocr_texto_pdf`, que já existem e rodam no Docker), `extrair_conta`
+lê nome/valor/vencimento e o bot sugere **cadastrar a conta** com confirmação. Se não achar valor, orienta a
+escrever. `_tg_registrar` e `_tg_resumo_acao` ganharam o tipo "conta" (insere em `contas`, categoria "Conta fixa").
+
+**Testado local: Fase 3 = 8/8, Fase 4 = 6/6** (OCR + download mockados). Suíte inteira do projeto revalidada:
+Telegram 17+18+8+6, MFA 16, hierarquia 29 — 94 no total, 0 falha.
+
+**Telegram COMPLETO (Fases 1-4).** Falta só o Renan ativar no ar: BotFather -> TELEGRAM_BOT_TOKEN no Render ->
+Registrar webhook -> cron. Aí testa: conectar, "gastei 50 no mercado", "quanto sobrou?", foto de um boleto.

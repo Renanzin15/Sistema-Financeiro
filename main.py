@@ -3168,9 +3168,45 @@ def _tg_parse(texto, uid):
     finally:
         con.close()
 
+def _tg_pergunta(texto, uid):
+    """Fase 3: mapeia pergunta em linguagem natural pra uma chave do assistente e responde.
+    Roda ANTES do registro (pra "posso comprar 200" não virar gasto). Devolve texto ou None."""
+    t = texto.lower().strip()
+    q = None; categoria = None; valor = 0; parcelas = 1
+    if re.search(r"\b(posso|consigo|d[aá]\s*pra)\b.*\bcomprar\b", t) or re.search(r"\bcomprar\b.*\?", t):
+        q = "posso_comprar"
+        m = re.search(r"\d[\d.,]*", texto)
+        valor = _num_para_centavos(m.group(0)) if m else 0
+        mp = re.search(r"(\d+)\s*x", t)
+        if mp:
+            parcelas = int(mp.group(1))
+    elif re.search(r"\bquanto\s+(eu\s+)?(gastei|gasto)\s+(em|com|no|na)\b", t):
+        q = "gasto_categoria"
+        mc = re.search(r"\b(?:em|com|no|na)\s+([a-zà-ú ]+?)\s*\??$", t)
+        categoria = mc.group(1).strip() if mc else None
+    elif re.search(r"\b(sobr|livre|saldo|dispon)", t):
+        q = "sobra"
+    elif re.search(r"\b(resumo|como\s+(eu\s+)?(t[oô]|estou|vou|ando)|como\s+est)", t):
+        q = "resumo"
+    elif re.search(r"\b(pagar|contas?|vencend|vence|dever|d[ií]vida)", t):
+        q = "pagar"
+    if not q:
+        return None
+    con = conectar()
+    try:
+        return _assistente_resposta(con, uid, q, categoria, valor, parcelas, None)
+    except HTTPException as e:
+        return str(e.detail)
+    finally:
+        con.close()
+
 def _tg_resumo_acao(a):
     v = ("R$ %.2f" % (a["valor_centavos"] / 100)).replace(".", ",")
     d = a.get("descricao") or ""
+    if a["tipo"] == "conta":
+        venc = a.get("vencimento") or ""
+        vtxt = f" — vence {_fmt_data_br(venc)}" if venc else ""
+        return f"📄 Cadastrar conta <b>{_esc_html(a.get('nome','Conta'))}</b> — <b>{v}</b>{vtxt}"
     if a["tipo"] == "alocacao":
         return f"📥 Guardar <b>{v}</b> na caixinha <b>{_esc_html(a.get('caixinha_nome',''))}</b>"
     if a["tipo"] == "pagamento":
@@ -3192,6 +3228,14 @@ def _tg_registrar(uid, acao):
     con = conectar()
     try:
         tipo = acao["tipo"]; valor = acao["valor_centavos"]
+        if tipo == "conta":   # Fase 4: cadastra uma conta a pagar (lida do comprovante)
+            venc = acao.get("vencimento")
+            if not data_valida(venc or ""):
+                venc = data_hoje()
+            con.execute(
+                "INSERT INTO contas (nome, valor_centavos, vencimento, tipo, tipo_conta, user_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (acao.get("nome") or "Conta", valor, venc, acao.get("categoria_conta") or "Conta fixa", "simples", uid))
+            con.commit(); return
         if tipo in ("alocacao", "saida_livre"):
             livre = calcular_saldo_livre(con, uid)
             if valor > livre:
@@ -3235,6 +3279,47 @@ def _tg_callback(cb):
     except HTTPException as e:
         _telegram_enviar(chat_id, "⚠️ " + str(e.detail))
 
+def _telegram_baixar_arquivo(file_id):
+    r = _telegram_api("getFile", {"file_id": file_id})
+    path = ((r or {}).get("result") or {}).get("file_path")
+    if not path:
+        raise HTTPException(status_code=502, detail="arquivo não encontrado")
+    import urllib.request
+    url = "https://api.telegram.org/file/bot" + TELEGRAM_BOT_TOKEN + "/" + path
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        return resp.read()
+
+def _tg_tratar_arquivo(chat_id, uid, msg):
+    # Fase 4: foto/PDF de comprovante -> OCR -> sugere uma conta (com confirmação)
+    if not OCR_PRONTO:
+        _telegram_enviar(chat_id, "O leitor de comprovante não está disponível no servidor agora. 😕")
+        return
+    file_id = None; is_pdf = False
+    if msg.get("photo"):
+        file_id = (msg["photo"][-1] or {}).get("file_id")     # maior resolução
+    elif msg.get("document"):
+        doc = msg["document"] or {}
+        is_pdf = "pdf" in (doc.get("mime_type") or "").lower()
+        file_id = doc.get("file_id")
+    if not file_id:
+        _telegram_enviar(chat_id, "Manda como <b>foto</b> ou <b>PDF</b> do comprovante. 🙂")
+        return
+    _telegram_enviar(chat_id, "📸 Recebi, lendo o comprovante…")
+    try:
+        dados = _telegram_baixar_arquivo(file_id)
+        texto = ocr_texto_pdf(dados) if is_pdf else ocr_texto_imagem(dados)
+    except Exception:
+        _telegram_enviar(chat_id, "Não consegui ler o arquivo 😕. Tenta uma foto mais nítida (boa luz, reto).")
+        return
+    info = extrair_conta(texto or "")
+    if not info.get("valor_centavos"):
+        _telegram_enviar(chat_id, "Li o comprovante, mas não achei o <b>valor</b>. Você pode registrar escrevendo, tipo <b>paguei 120 de luz</b>.")
+        return
+    acao = {"tipo": "conta", "nome": info.get("nome") or "Conta", "valor_centavos": info["valor_centavos"],
+            "vencimento": info.get("vencimento") or data_hoje(), "categoria_conta": "Conta fixa", "ts": _time.time()}
+    _tg_pendentes[chat_id] = acao
+    _tg_confirmar(chat_id, acao)
+
 def _tratar_update_telegram(update):
     cb = update.get("callback_query")
     if cb:
@@ -3265,12 +3350,17 @@ def _tratar_update_telegram(update):
     if not uid:
         _telegram_enviar(chat_id, "Conecte sua conta primeiro: no app → <b>Configurações → Conectar Telegram</b>. 🙂")
         return
+    if msg.get("photo") or msg.get("document"):   # Fase 4: comprovante por foto/PDF
+        _tg_tratar_arquivo(chat_id, uid, msg); return
     if texto.startswith("/"):
         _telegram_enviar(chat_id, "Sem comandos por enquanto — é só escrever naturalmente, tipo <b>gastei 50 no mercado</b> ou <b>guardei 100 na reserva</b>.")
         return
+    resp = _tg_pergunta(texto, uid)   # Fase 3: pergunta (antes do registro)
+    if resp is not None:
+        _telegram_enviar(chat_id, resp); return
     acao = _tg_parse(texto, uid)
     if not acao:
-        _telegram_enviar(chat_id, "Não entendi 🤔. Tente: <b>gastei 50 no mercado</b>, <b>recebi 1700 salário</b>, <b>guardei 100 na reserva</b>, <b>gastei 30 da reserva</b>.")
+        _telegram_enviar(chat_id, "Não entendi 🤔.\n<b>Registrar:</b> gastei 50 no mercado · recebi 1700 salário · guardei 100 na reserva\n<b>Perguntar:</b> quanto sobrou? · posso comprar 200? · quanto gastei em mercado?")
         return
     if acao.get("erro"):
         _telegram_enviar(chat_id, "🤔 " + acao["erro"]); return
@@ -3734,11 +3824,8 @@ def _contas_a_pagar(con, user_id):
             proxima = venc
     return total, qtd, proxima
 
-@app.get("/assistente")
-def assistente(q: str, categoria: str = None, valor_centavos: int = 0, parcelas: int = 1,
-               cartao_id: int = None, user_id: str = Depends(exigir_login)):
-    """Responde uma pergunta pré-definida com número calculado (exato)."""
-    con = conectar()
+def _assistente_resposta(con, user_id, q, categoria=None, valor_centavos=0, parcelas=1, cartao_id=None):
+    """Calcula a resposta do assistente (número exato). NÃO fecha o con — quem chama fecha."""
     hoje = date.today()
     mes = hoje.strftime("%Y-%m")
     resposta = "Não entendi a pergunta."
@@ -3771,7 +3858,6 @@ def assistente(q: str, categoria: str = None, valor_centavos: int = 0, parcelas:
 
     elif q == "gasto_categoria":
         if not categoria:
-            con.close()
             raise HTTPException(status_code=400, detail="Escolha a categoria.")
         g = gasto_por_categoria(con, user_id, mes).get(categoria.lower(), 0)
         nome = _nome_categoria_real(con, user_id, categoria)
@@ -3786,13 +3872,11 @@ def assistente(q: str, categoria: str = None, valor_centavos: int = 0, parcelas:
 
     elif q == "posso_comprar":
         if valor_centavos <= 0:
-            con.close()
             raise HTTPException(status_code=400, detail="Informe o valor da compra.")
         livre = calcular_saldo_livre(con, user_id)
         if cartao_id:
             cart = con.execute("SELECT nome, limite_centavos FROM cartoes WHERE id=? AND user_id=?", (cartao_id, user_id)).fetchone()
             if cart is None:
-                con.close()
                 raise HTTPException(status_code=404, detail="Cartão não encontrado.")
             disp = cart[1] - _usado_cartao(con, user_id, cartao_id)
             n = max(parcelas, 1)
@@ -3819,8 +3903,17 @@ def assistente(q: str, categoria: str = None, valor_centavos: int = 0, parcelas:
                 else:
                     resposta = f"Pode! Cabe no saldo livre e sobrariam {reais_txt(livre - valor_centavos)}. O mês segue positivo. 👍"
 
-    con.close()
-    return {"resposta": resposta}
+    return resposta
+
+@app.get("/assistente")
+def assistente(q: str, categoria: str = None, valor_centavos: int = 0, parcelas: int = 1,
+               cartao_id: int = None, user_id: str = Depends(exigir_login)):
+    """Responde uma pergunta pré-definida com número calculado (exato)."""
+    con = conectar()
+    try:
+        return {"resposta": _assistente_resposta(con, user_id, q, categoria, valor_centavos, parcelas, cartao_id)}
+    finally:
+        con.close()
 
 
 # ========================================================
