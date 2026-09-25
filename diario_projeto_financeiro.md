@@ -2177,3 +2177,35 @@ servidor não tiver service key, mostra aviso amigável em vez de erro.
 sem token 401. **Navegador:** admin vê o menu e a tela (com aviso de "não configurado" sem key local);
 não-admin não vê o menu; zero erros de console. As operações reais (criar/resetar/etc.) dependem de
 configurar no Render: `SUPABASE_SERVICE_ROLE_KEY` + `ADMIN_EMAIL` (a fazer, com guia pela extensão).
+
+## Etapa 41 — Hierarquia de papéis: super admin / admin / usuário (Mudança 11.2) (25/09/2026)
+
+Evolução da Etapa 40: em vez de "1 admin × resto", agora são **3 níveis**.
+- **super** = quem está em `ADMIN_EMAIL` (env). Faz tudo, inclusive tornar/remover admin. Fixo, ninguém mexe.
+- **admin** = usuário com `user_metadata.role == "admin"`. Gerencia SÓ usuários padrão: criar, resetar senha,
+  bloquear/desbloquear. **NÃO apaga** e **NÃO promove** (decisão do Renan: "sem apagar").
+- **user** = padrão, uso normal, sem a tela de Usuários.
+
+**Backend (`main.py`):** helpers `_papel` (ator, via JWT: email→super, `user_metadata.role`→admin),
+`_papel_usuario` (alvo, via Supabase), `_eh_super`, `_pode_gerir_alvo` (regra central: super age sobre
+qualquer um; admin só sobre `user`), dependência `exigir_super`, e `_buscar_usuario` (lê o alvo antes de agir).
+`/me` agora devolve `papel`/`is_super`. Criar: admin só cria padrão; admin de verdade só o super cria.
+Resetar/bloquear: admin só sobre padrão; ninguém bloqueia o super; **reset preserva o `role`** (merge do
+metadata, não sobrescreve). Apagar virou `exigir_super`. Novos: `POST /admin/usuarios/{id}/promover` e
+`/rebaixar` (só super, com merge do metadata).
+
+**Front (`index.html`+`app.js`):** global `IS_SUPER`; a lista de Usuários mostra a tag do papel
+(super admin/admin) e adapta os botões — admin não vê "Apagar" nem "Tornar/Remover admin"; super vê tudo
+e ganha os botões Promover/Rebaixar. Seletor de "Papel" no form Novo usuário só aparece pro super.
+
+**Segurança:** promover/rebaixar/apagar só do super (evita escalada por admin comum). Todas as checagens no
+servidor, validando ator E alvo. Metadata mesclado (nunca apaga o `role` ao resetar senha). Obs.: como o
+papel do ator vem do JWT, uma promoção/rebaixamento só vale pro alvo no **próximo login** dele (token novo).
+
+**Testado:** 29/29 na matriz de autorização (SQLite isolado + tokens HS256 + Admin API do Supabase mockada):
+quem cria/reseta/bloqueia/apaga/promove sobre quem, com as barreiras (admin não toca em admin/super, admin
+não apaga, só super promove, ninguém bloqueia o super, ninguém age sobre si em ações destrutivas).
+
+**Render configurado (25/09/2026):** `ADMIN_EMAIL=renangaming12@gmail.com` (super admin) + `SUPABASE_SERVICE_ROLE_KEY`
+adicionados no serviço (via extensão no dashboard; o Renan colou a chave secreta). A partir daqui a área de
+Usuários funciona de verdade em produção.

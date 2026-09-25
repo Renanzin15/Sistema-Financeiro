@@ -401,6 +401,12 @@
           <h2>Novo usuário</h2>
           <div class="campo"><label>E-mail</label><input id="us-email" type="email" placeholder="pessoa@email.com"></div>
           <div class="campo"><label>Senha temporária</label><input id="us-senha" type="text" placeholder="mín. 6 caracteres"></div>
+          <div class="campo" id="us-papel-linha" style="display:none"><label>Papel</label>
+            <select id="us-papel">
+              <option value="user">Usuário padrão</option>
+              <option value="admin">Admin (gerencia usuários padrão)</option>
+            </select>
+          </div>
           <button class="acao" onclick="criarUsuario()">Criar usuário</button>
           <div class="sub" style="margin-top:12px">Anote e passe a senha temporária pra pessoa — ela troca no primeiro acesso.</div>
         </div>

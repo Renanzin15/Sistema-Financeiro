@@ -496,11 +496,43 @@ def _token_dados(cred):
     except Exception:
         raise HTTPException(status_code=401, detail="Sessão inválida ou expirada.")
 
-def _eh_admin(dados):
+# Mudança 11.2 — HIERARQUIA de papéis (3 níveis):
+#   super  = quem está no ADMIN_EMAIL (env). Faz tudo, inclusive tornar/remover admin. Fixo, ninguém mexe nele.
+#   admin  = usuário com user_metadata.role == "admin". Gerencia SÓ usuários padrão (não apaga, não promove).
+#   user   = padrão. Uso normal, sem tela de Usuários.
+def _papel(dados):
+    """Papel de QUEM porta o token (o ator). Vem só do JWT (email + user_metadata.role)."""
     email = (dados.get("email") or "").strip().lower()
-    return bool(ADMIN_EMAIL) and email == ADMIN_EMAIL
+    if bool(ADMIN_EMAIL) and email == ADMIN_EMAIL:
+        return "super"
+    role = ((dados.get("user_metadata") or {}).get("role") or "").strip().lower()
+    return "admin" if role == "admin" else "user"
 
-# dependência: exige que o solicitante seja o admin (senão 403). Devolve o dados do token.
+def _papel_usuario(u):
+    """Papel de um usuário-ALVO (objeto vindo do Supabase)."""
+    email = (u.get("email") or "").strip().lower()
+    if bool(ADMIN_EMAIL) and email == ADMIN_EMAIL:
+        return "super"
+    role = ((u.get("user_metadata") or {}).get("role") or "").strip().lower()
+    return "admin" if role == "admin" else "user"
+
+def _eh_admin(dados):
+    # super OU admin: quem enxerga a área de Usuários
+    return _papel(dados) in ("super", "admin")
+
+def _eh_super(dados):
+    return _papel(dados) == "super"
+
+def _pode_gerir_alvo(dados, alvo_papel):
+    """Regra central da hierarquia: super age sobre qualquer um; admin só sobre 'user'."""
+    ator = _papel(dados)
+    if ator == "super":
+        return True
+    if ator == "admin":
+        return alvo_papel == "user"
+    return False
+
+# dependência: exige super OU admin (senão 403). Devolve os dados do token.
 def exigir_admin(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
     dados = _token_dados(cred)
     if not dados.get("sub"):
@@ -509,6 +541,13 @@ def exigir_admin(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
         raise HTTPException(status_code=403, detail="Só o administrador pode fazer isso.")
     if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
         raise HTTPException(status_code=500, detail="Gestão de usuários não configurada no servidor (falta SUPABASE_SERVICE_ROLE_KEY).")
+    return dados
+
+# dependência: exige o SUPER admin (apagar, promover/rebaixar). Reaproveita as checagens acima.
+def exigir_super(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
+    dados = exigir_admin(cred)
+    if not _eh_super(dados):
+        raise HTTPException(status_code=403, detail="Só o super admin pode fazer isso.")
     return dados
 
 def _supabase_admin(method, path, body=None):
@@ -535,6 +574,13 @@ def _supabase_admin(method, path, body=None):
         raise HTTPException(status_code=400, detail=msg)
     except Exception:
         raise HTTPException(status_code=502, detail="Não consegui falar com o Supabase agora.")
+
+def _buscar_usuario(uid):
+    """Busca um usuário pelo id na Admin API — pra saber o papel do ALVO antes de agir sobre ele."""
+    u = _supabase_admin("GET", f"/auth/v1/admin/users/{uid}")
+    if not isinstance(u, dict) or not u.get("id"):
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    return u
 
 criar_tabelas()
 
@@ -2787,11 +2833,14 @@ def quem_sou_eu(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
     dados = _token_dados(cred)
     if not dados.get("sub"):
         raise HTTPException(status_code=401, detail="Token sem usuário.")
-    admin = _eh_admin(dados)
+    papel = _papel(dados)
+    admin = papel in ("super", "admin")
     return {
         "user_id": dados.get("sub"),
         "email": dados.get("email"),
-        "is_admin": admin,
+        "papel": papel,                 # M11.2: "super" | "admin" | "user"
+        "is_admin": admin,              # super OU admin (vê a tela Usuários)
+        "is_super": papel == "super",   # só o super promove/apaga
         # avisa se o servidor está pronto pra gestão de usuários (evita botão que só dá erro)
         "admin_pronto": bool(admin and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY),
     }
@@ -2799,6 +2848,7 @@ def quem_sou_eu(cred: HTTPAuthorizationCredentials = Depends(seguranca)):
 class NovoUsuario(BaseModel):
     email: str
     senha: str
+    papel: str = "user"   # M11.2: "user" (padrão) ou "admin" (só o super pode criar admin)
 
 class ResetSenha(BaseModel):
     senha: str
@@ -2812,6 +2862,7 @@ def _fmt_usuario(u):
         "confirmado": bool(u.get("email_confirmed_at")),
         "bloqueado": bool(u.get("banned_until")),
         "precisa_trocar_senha": bool((u.get("user_metadata") or {}).get("precisa_trocar_senha")),
+        "papel": _papel_usuario(u),   # M11.2: "super" | "admin" | "user"
     }
 
 @app.get("/admin/usuarios")
@@ -2819,8 +2870,11 @@ def listar_usuarios(dados: dict = Depends(exigir_admin)):
     r = _supabase_admin("GET", "/auth/v1/admin/users?per_page=200")
     users = r.get("users", r) if isinstance(r, dict) else r
     lista = [_fmt_usuario(u) for u in (users or [])]
+    # M11.2: admin (nível do meio) só enxerga usuários padrão; super vê todos.
+    if _papel(dados) == "admin":
+        lista = [x for x in lista if x["papel"] == "user"]
     lista.sort(key=lambda x: (x["email"] or "").lower())
-    return {"usuarios": lista, "admin_email": ADMIN_EMAIL}
+    return {"usuarios": lista, "admin_email": ADMIN_EMAIL, "meu_papel": _papel(dados)}
 
 @app.post("/admin/usuarios")
 def criar_usuario(item: NovoUsuario, dados: dict = Depends(exigir_admin)):
@@ -2829,11 +2883,20 @@ def criar_usuario(item: NovoUsuario, dados: dict = Depends(exigir_admin)):
         raise HTTPException(status_code=400, detail="E-mail inválido.")
     if len(item.senha or "") < 6:
         raise HTTPException(status_code=400, detail="A senha temporária precisa ter ao menos 6 caracteres.")
+    papel_novo = (item.papel or "user").strip().lower()
+    if papel_novo not in ("user", "admin"):
+        papel_novo = "user"
+    # M11.2: só o super admin pode criar OUTRO admin (evita escalada por um admin comum).
+    if papel_novo == "admin" and not _eh_super(dados):
+        raise HTTPException(status_code=403, detail="Só o super admin pode criar outro admin.")
+    meta = {"precisa_trocar_senha": True}   # força trocar no 1º login
+    if papel_novo == "admin":
+        meta["role"] = "admin"
     novo = _supabase_admin("POST", "/auth/v1/admin/users", {
         "email": email,
         "password": item.senha,
         "email_confirm": True,   # já confirmado: entra direto com a senha temporária
-        "user_metadata": {"precisa_trocar_senha": True},   # força trocar no 1º login
+        "user_metadata": meta,
     })
     return {"status": "usuário criado", "usuario": _fmt_usuario(novo)}
 
@@ -2841,9 +2904,15 @@ def criar_usuario(item: NovoUsuario, dados: dict = Depends(exigir_admin)):
 def resetar_senha(uid: str, item: ResetSenha, dados: dict = Depends(exigir_admin)):
     if len(item.senha or "") < 6:
         raise HTTPException(status_code=400, detail="A senha precisa ter ao menos 6 caracteres.")
+    alvo = _buscar_usuario(uid)
+    if not _pode_gerir_alvo(dados, _papel_usuario(alvo)):
+        raise HTTPException(status_code=403, detail="Você não pode gerenciar este usuário.")
+    # preserva o metadata existente (ex.: role de admin) e só liga o "trocar no próximo login"
+    meta = dict(alvo.get("user_metadata") or {})
+    meta["precisa_trocar_senha"] = True
     _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {
         "password": item.senha,
-        "user_metadata": {"precisa_trocar_senha": True},   # ao resetar, força trocar no próximo login
+        "user_metadata": meta,
     })
     return {"status": "senha resetada"}
 
@@ -2851,20 +2920,51 @@ def resetar_senha(uid: str, item: ResetSenha, dados: dict = Depends(exigir_admin
 def bloquear_usuario(uid: str, dados: dict = Depends(exigir_admin)):
     if uid == dados.get("sub"):
         raise HTTPException(status_code=400, detail="Você não pode bloquear a si mesmo.")
+    alvo = _buscar_usuario(uid)
+    if _papel_usuario(alvo) == "super":
+        raise HTTPException(status_code=403, detail="Não é possível bloquear o super admin.")
+    if not _pode_gerir_alvo(dados, _papel_usuario(alvo)):
+        raise HTTPException(status_code=403, detail="Você não pode gerenciar este usuário.")
     _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"ban_duration": "876000h"})  # ~100 anos
     return {"status": "usuário bloqueado"}
 
 @app.post("/admin/usuarios/{uid}/desbloquear")
 def desbloquear_usuario(uid: str, dados: dict = Depends(exigir_admin)):
+    alvo = _buscar_usuario(uid)
+    if not _pode_gerir_alvo(dados, _papel_usuario(alvo)):
+        raise HTTPException(status_code=403, detail="Você não pode gerenciar este usuário.")
     _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"ban_duration": "none"})
     return {"status": "usuário desbloqueado"}
 
 @app.delete("/admin/usuarios/{uid}")
-def apagar_usuario(uid: str, dados: dict = Depends(exigir_admin)):
+def apagar_usuario(uid: str, dados: dict = Depends(exigir_super)):
+    # M11.2: apagar é só do super admin (admin comum não apaga).
     if uid == dados.get("sub"):
         raise HTTPException(status_code=400, detail="Você não pode apagar a si mesmo.")
     _supabase_admin("DELETE", f"/auth/v1/admin/users/{uid}")
     return {"status": "usuário apagado"}
+
+@app.post("/admin/usuarios/{uid}/promover")
+def promover_admin(uid: str, dados: dict = Depends(exigir_super)):
+    # M11.2: só o super torna alguém admin.
+    alvo = _buscar_usuario(uid)
+    if _papel_usuario(alvo) == "super":
+        raise HTTPException(status_code=400, detail="O super admin já tem todo o acesso.")
+    meta = dict(alvo.get("user_metadata") or {})
+    meta["role"] = "admin"
+    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"user_metadata": meta})
+    return {"status": "usuário promovido a admin"}
+
+@app.post("/admin/usuarios/{uid}/rebaixar")
+def rebaixar_admin(uid: str, dados: dict = Depends(exigir_super)):
+    # M11.2: só o super remove o papel de admin (vira usuário padrão).
+    alvo = _buscar_usuario(uid)
+    if _papel_usuario(alvo) == "super":
+        raise HTTPException(status_code=400, detail="O super admin não pode ser rebaixado.")
+    meta = dict(alvo.get("user_metadata") or {})
+    meta.pop("role", None)
+    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"user_metadata": meta})
+    return {"status": "admin rebaixado a usuário padrão"}
 
 
 # ========================================================

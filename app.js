@@ -15,7 +15,8 @@ let filtroHist = "tudo";   // F3: filtro ativo (tudo/entradas/saidas/caixinhas)
 let buscaHist = "";        // F3: termo de busca por descrição
 let CATEGORIAS = [];        // M2: categorias do usuário (pra auto-sugestão e orçamento)
 let APRENDIDO = {};         // M9: descrição normalizada -> categoria que você ensinou
-let IS_ADMIN = false;       // M11: se o usuário logado é o admin
+let IS_ADMIN = false;       // M11: super OU admin (vê a tela Usuários)
+let IS_SUPER = false;       // M11.2: super admin (promove/rebaixa/apaga)
 let ADMIN_PRONTO = false;   // M11: se o servidor tem service_role key configurada
 let orcMes = null;          // M2: mês em edição na tela Orçamento (AAAA-MM)
 // M2: palavra na descrição -> categoria provável (espelho do MAPA_PALAVRAS do back-end)
@@ -343,20 +344,30 @@ async function carregarUsuarios() {
   el.innerHTML = '<div class="sub" style="padding:8px 0">Carregando…</div>';
   let d;
   try { d = await pedir("/admin/usuarios"); } catch (e) { el.innerHTML = '<div class="vazio" style="text-align:left">' + e.message + '</div>'; return; }
-  const admEmail = (d.admin_email || "").toLowerCase();
   if (!d.usuarios.length) { el.innerHTML = '<div class="vazio">Nenhum usuário.</div>'; return; }
   el.innerHTML = d.usuarios.map(u => {
-    const souEu = (u.email || "").toLowerCase() === admEmail;
     const tags = [];
-    if (souEu) tags.push('<span class="fatura-tag paga">admin</span>');
+    if (u.papel === "super") tags.push('<span class="fatura-tag paga">super admin</span>');
+    else if (u.papel === "admin") tags.push('<span class="fatura-tag paga">admin</span>');
     if (u.bloqueado) tags.push('<span class="fatura-tag" style="color:var(--vermelho);background:var(--vermelho-fundo)">bloqueado</span>');
     if (u.precisa_trocar_senha) tags.push('<span class="fatura-tag aberta">trocar senha</span>');
-    const acoes = souEu ? '<span class="sub">(você)</span>' : `
-      <button class="perigo" onclick="resetarSenhaUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Resetar senha</button>
-      ${u.bloqueado
+    let acoes;
+    if (u.papel === "super") {
+      acoes = IS_SUPER ? '<span class="sub">(você)</span>' : '<span class="sub">super admin</span>';
+    } else {
+      const reset = `<button class="perigo" onclick="resetarSenhaUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Resetar senha</button>`;
+      const bloq = u.bloqueado
         ? `<button class="perigo" onclick="setBloqueioUsuario('${escAttr(u.id)}','${escAttr(u.email)}',false)">Desbloquear</button>`
-        : `<button class="perigo" onclick="setBloqueioUsuario('${escAttr(u.id)}','${escAttr(u.email)}',true)">Bloquear</button>`}
-      <button class="perigo" style="color:var(--vermelho)" onclick="apagarUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Apagar</button>`;
+        : `<button class="perigo" onclick="setBloqueioUsuario('${escAttr(u.id)}','${escAttr(u.email)}',true)">Bloquear</button>`;
+      let superAcoes = "";
+      if (IS_SUPER) {   // só o super promove/rebaixa/apaga
+        superAcoes = (u.papel === "admin")
+          ? `<button class="perigo" onclick="rebaixarUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Remover admin</button>`
+          : `<button class="perigo" onclick="promoverUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Tornar admin</button>`;
+        superAcoes += `<button class="perigo" style="color:var(--vermelho)" onclick="apagarUsuario('${escAttr(u.id)}','${escAttr(u.email)}')">Apagar</button>`;
+      }
+      acoes = reset + bloq + superAcoes;
+    }
     return `<div class="item" style="align-items:flex-start;flex-direction:column;gap:8px">
       <div style="display:flex;justify-content:space-between;width:100%;gap:8px;align-items:center">
         <div style="min-width:0"><div class="nome" style="word-break:break-all">${u.email || "(sem e-mail)"} ${tags.join(" ")}</div>
@@ -371,9 +382,12 @@ async function criarUsuario() {
   const senha = document.getElementById("us-senha").value;
   if (!email || !email.includes("@")) return aviso("Informe um e-mail válido.", "erro");
   if (senha.length < 6) return aviso("A senha temporária precisa ter ao menos 6 caracteres.", "erro");
+  const papelEl = document.getElementById("us-papel");
+  const papel = (IS_SUPER && papelEl) ? papelEl.value : "user";   // só o super escolhe papel
   try {
-    await pedir("/admin/usuarios", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, senha }) });
+    await pedir("/admin/usuarios", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, senha, papel }) });
     document.getElementById("us-email").value = ""; document.getElementById("us-senha").value = "";
+    if (papelEl) papelEl.value = "user";
     aviso("Usuário criado. Passe a senha temporária pra pessoa.", "ok");
     carregarUsuarios();
   } catch (e) { aviso(e.message, "erro"); }
@@ -405,14 +419,31 @@ async function apagarUsuario(id, email) {
     carregarUsuarios();
   } catch (e) { aviso(e.message, "erro"); }
 }
+async function promoverUsuario(id, email) {   // M11.2: só o super
+  if (!(await confirmar({ titulo: "Tornar " + email + " admin?", texto: "Ele poderá gerenciar usuários padrão (criar, resetar senha, bloquear) — mas não apaga usuários nem mexe em admins. Passa a valer no próximo login dele.", rotulo: "Tornar admin", icone: "alerta" }))) return;
+  try {
+    await pedir(`/admin/usuarios/${id}/promover`, { method: "POST" });
+    aviso("Usuário promovido a admin.", "ok");
+    carregarUsuarios();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+async function rebaixarUsuario(id, email) {   // M11.2: só o super
+  if (!(await confirmar({ titulo: "Remover admin de " + email + "?", texto: "Ele volta a ser usuário padrão e perde o acesso à tela de Usuários. Passa a valer no próximo login dele.", rotulo: "Remover admin", icone: "alerta" }))) return;
+  try {
+    await pedir(`/admin/usuarios/${id}/rebaixar`, { method: "POST" });
+    aviso("Admin rebaixado a usuário padrão.", "ok");
+    carregarUsuarios();
+  } catch (e) { aviso(e.message, "erro"); }
+}
 
 async function carregarTudo() {
   await carregarBancos();
   await carregarCartoes();   // M5: CARTOES disponível antes de contas/assinaturas (usado nos selects "cobrar em")
   pedir("/aprendizado-categoria").then(m => { APRENDIDO = m || {}; }).catch(() => {});  // M9: mapa aprendido
   pedir("/me").then(m => {   // M11: mostra a área de Usuários só pro admin
-    IS_ADMIN = !!m.is_admin; ADMIN_PRONTO = !!m.admin_pronto;
+    IS_ADMIN = !!m.is_admin; IS_SUPER = !!m.is_super; ADMIN_PRONTO = !!m.admin_pronto;
     const mi = document.getElementById("menu-usuarios"); if (mi) mi.style.display = IS_ADMIN ? "" : "none";
+    const pl = document.getElementById("us-papel-linha"); if (pl) pl.style.display = IS_SUPER ? "" : "none";  // M11.2: só super escolhe papel
   }).catch(() => {});
   // lança as entradas recorrentes cujo dia já chegou ANTES de calcular saldos/histórico
   try { await pedir("/entradas-recorrentes/gerar", { method: "POST" }); } catch (e) {}
