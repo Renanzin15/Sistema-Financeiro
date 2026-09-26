@@ -2393,3 +2393,26 @@ ambiguidade.
 R$ 0,00; depois de reconectar, o vínculo da vazia zera e o saldo reflete a real; apagar remove o vínculo).
 Regressão: 105/105 nas suítes tocadas (hierarquia 29, telegram 17/18/10/8/6/17). Pendente decidir à parte:
 apagar usuário deve **também apagar os dados financeiros** dele (hoje ficam guardados, sem acesso) ou não.
+
+## Etapa 49 — Menu lateral em categorias + barra superior contextual (26/09/2026)
+
+Pedido do Renan: agrupar o menu lateral por seções (sem tirar nada, sem mexer em rota/lógica/permissão) e, em
+Usuários/Configurações, esconder a barra da direita (banco + alertas). **Mudança puramente visual/UX.**
+
+**Menu (index.html + styles.css):** a lista plana virou grupos com títulos `<div class="menu-grupo">` — Principal
+(Visão geral, Assistente), Financeiro (Categorias, Cartões, Dívidas, Histórico), Planejamento (Orçamento,
+Caixinhas, Previsão, **Licenças**), Análises (Análise, Comparar, Insights), Administração (Usuários,
+Configurações), Ferramentas (Importar), e Sair isolado embaixo (`margin-top:auto`). **Análise crítica aplicada:**
+"Licenças" é assinaturas/cobranças recorrentes (função financeira), não admin — o Renan tinha posto em
+Administração; expliquei e ele aprovou mover pra Planejamento. `.menu-grupo`: rótulo pequeno maiúsculo discreto
+(`var(--faint)`), `pointer-events:none`, e **some** na trilha de ícones (≤1000px) junto com os rótulos. app.js do
+menu **não muda** (o clique é por classe `.item-menu`+`data-tela`, não por ordem) — rotas, `.ativa` e títulos
+intactos.
+
+**Barra superior (index.html + app.js):** o bloco da direita ganhou `id="topo-info"`; no handler de troca de tela,
+`_info.style.display = (tela==="usuarios"||tela==="configuracoes") ? "none" : ""`. Mantém botão de menu + título.
+Esconder a barra inteira tiraria o botão do menu — por isso só a direita.
+
+**Verificado no navegador** (servidor estático local): ordem dos grupos exata, ícones/destaque ok, Sair no rodapé;
+barra da direita some em Configurações e volta na Visão geral. `node --check app.js` ok. Sem backend/teste Python
+(mudança de front); o Renan valida no ar após deploy.

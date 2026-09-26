@@ -3135,6 +3135,9 @@ document.querySelectorAll(".item-menu").forEach(item => {
     item.classList.add("ativa");
     document.getElementById(tela).classList.add("ativa");
     document.getElementById("titulo-tela").textContent = titulos[tela];
+    // em Usuários/Configurações a barra da direita (banco + alertas) não faz sentido — some
+    const _info = document.getElementById("topo-info");
+    if (_info) _info.style.display = (tela === "usuarios" || tela === "configuracoes") ? "none" : "";
     if (tela === "previsao") carregarPrevisao();   // previsão carrega ao abrir (dado fresco do servidor)
     if (tela === "orcamento") carregarOrcamento();  // M2: orçamento carrega ao abrir
     if (tela === "comparar") carregarComparar();    // M3: comparação carrega ao abrir
