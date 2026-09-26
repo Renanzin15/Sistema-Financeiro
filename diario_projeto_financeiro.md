@@ -2367,3 +2367,29 @@ consulta de cartão, e "quanto gastei em X" (pergunta) com registro. Bug pego: "
 
 **Testado local: 121/121** (Telegram 17+18+10+8+6+17, MFA 16, hierarquia 29), 0 falha. Segue sem ativar no ar
 (BotFather/token/cron pendentes do Renan). Refatorações de reuso: `_lancar_compra_cartao` e `_pagar_conta`.
+
+## Etapa 48 — Telegram no ar + correção do vínculo órfão (26/09/2026)
+
+**Ativação:** BotFather → `TELEGRAM_BOT_TOKEN` no Render → Configurações → Registrar webhook → cron-job.org
+(POST diário). Diagnóstico provou que a infra estava 100% certa: `getWebhookInfo` com `url` correta, `pending: 0`
+e **sem** `last_error`; secret derivado (`sha256("wh:"+token)[:32]`) batendo com o path registrado; endpoint de
+produção devolvendo 200. O "bot não responde" era o Renan **não conseguir achar/abrir o bot** no Telegram — nada
+de código. Confirmado via `getUpdates` (chat real) + `sendMessage` direto: envio funciona.
+
+**Bug real encontrado (e corrigido):** o Renan tem 2 contas no sistema — `renangaming12` (real, com dados) e
+`renangaming95` (teste, vazia). Conectou o Telegram, depois **apagou** a conta de teste. Mas `apagar_usuario`
+(linha ~2949) só apagava o **login no Supabase** — deixava a linha da tabela `telegram` **órfã**, ainda com o
+`chat_id`. Como `_tg_user_por_chat` faz `SELECT ... WHERE chat_id=?` e pega a **primeira** linha, o bot continuava
+lendo a conta vazia → **"dados zerados"**. Duas contas com o mesmo `chat_id` ao mesmo tempo davam a mesma
+ambiguidade.
+
+**Correção (2 partes, cirúrgica):**
+1. **Conectar virou exclusivo** — no `/start <código>`, antes de gravar o `chat_id` da conta nova, roda
+   `UPDATE telegram SET chat_id=NULL WHERE chat_id=? AND user_id<>?`. Assim o chat passa a valer para **uma só**
+   conta e limpa qualquer vínculo antigo/órfão. Resolve o caso do Renan: basta reconectar a conta certa.
+2. **Apagar usuário** passou a rodar `DELETE FROM telegram WHERE user_id=?` junto — nunca mais gera órfão.
+
+**Testado local: 8/8** no cenário exato (conta vazia órfã conectada + conta real com R$ 2.500 → antes puxava
+R$ 0,00; depois de reconectar, o vínculo da vazia zera e o saldo reflete a real; apagar remove o vínculo).
+Regressão: 105/105 nas suítes tocadas (hierarquia 29, telegram 17/18/10/8/6/17). Pendente decidir à parte:
+apagar usuário deve **também apagar os dados financeiros** dele (hoje ficam guardados, sem acesso) ou não.

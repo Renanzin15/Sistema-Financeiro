@@ -2952,6 +2952,10 @@ def apagar_usuario(uid: str, dados: dict = Depends(exigir_super)):
     if uid == dados.get("sub"):
         raise HTTPException(status_code=400, detail="Você não pode apagar a si mesmo.")
     _supabase_admin("DELETE", f"/auth/v1/admin/users/{uid}")
+    # remove o vínculo do Telegram junto, pra não deixar "órfão" roubando o chat de outra conta
+    con = conectar()
+    con.execute("DELETE FROM telegram WHERE user_id=?", (uid,))
+    con.commit(); con.close()
     return {"status": "usuário apagado"}
 
 @app.post("/admin/usuarios/{uid}/promover")
@@ -3648,6 +3652,8 @@ def _tratar_update_telegram(update):
         uid, expira = row[0], row[1]
         if expira and expira < datetime.now().isoformat():
             con.close(); _telegram_enviar(chat_id, "Esse código expirou. Gere um novo no app."); return
+        # exclusividade: este chat passa a valer só para esta conta (limpa vínculos antigos/órfãos)
+        con.execute("UPDATE telegram SET chat_id=NULL WHERE chat_id=? AND user_id<>?", (str(chat_id), uid))
         con.execute("UPDATE telegram SET chat_id=?, codigo=NULL, expira=NULL WHERE user_id=?", (str(chat_id), uid))
         con.commit(); con.close()
         _telegram_enviar(chat_id, "✅ <b>Conectado!</b> Sua conta está vinculada. Você recebe avisos por aqui e pode registrar escrevendo, tipo <b>gastei 50 no mercado</b>.")
