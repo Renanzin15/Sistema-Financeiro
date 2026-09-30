@@ -2416,3 +2416,23 @@ Esconder a barra inteira tiraria o botão do menu — por isso só a direita.
 **Verificado no navegador** (servidor estático local): ordem dos grupos exata, ícones/destaque ok, Sair no rodapé;
 barra da direita some em Configurações e volta na Visão geral. `node --check app.js` ok. Sem backend/teste Python
 (mudança de front); o Renan valida no ar após deploy.
+
+## Etapa 50 — Correção de segurança SEC-001: papel de admin em app_metadata (29/09/2026)
+
+Depois da auditoria de segurança (relatório em Word, fora do repo — o repo é PÚBLICO), a 1ª correção: a
+**escalada de privilégio**. `_papel`/`_papel_usuario` liam o papel de `user_metadata.role`, que no Supabase é
+**editável pelo próprio usuário** (`updateUser`), permitindo autopromoção a admin → reset de senha de outros →
+tomada de conta. Corrigido lendo de **`app_metadata.role`** (só a service_role escreve — mesmo padrão que o flag
+`mfa_ativo` já usava). `criar_usuario`/`promover_admin`/`rebaixar_admin` passam a gravar/remover o papel em
+`app_metadata` e limpam `role` legado em `user_metadata`. **Frontend não mudou** (pega `is_admin` do `/me`, que o
+back calcula). Super (por `ADMIN_EMAIL`) não é afetado.
+
+**Testado local: 139/139**, 0 falha. Novo `test_sec001.py` (10): role em `user_metadata` → papel `user` + 403 no
+admin (autopromoção fechada); role em `app_metadata` → admin ok; super por e-mail intacto; `promover` grava em
+`app_metadata` e não em `user_metadata`. Regressão: hierarquia 29, MFA 16, telegram 17/18/10/8/6/17, órfão 8
+(ajustei os testes de hierarquia/MFA pra montar admin via `app_metadata`).
+
+**Efeito no deploy:** admin criado pelo jeito antigo (role em `user_metadata`) vira usuário comum até ser
+**re-promovido** (super → Usuários → Promover, agora grava no lugar certo). Pendências da auditoria (P2/P3):
+travar versões + `pip-audit`, rate limiting, teto em `/importar/analisar`, race no saldo, CSP, Swagger off,
+allowlist de `tipo`, etc. Ver a nota de auditoria.

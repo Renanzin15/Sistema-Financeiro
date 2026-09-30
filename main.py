@@ -522,19 +522,21 @@ def _token_dados(cred):
 #   admin  = usuário com user_metadata.role == "admin". Gerencia SÓ usuários padrão (não apaga, não promove).
 #   user   = padrão. Uso normal, sem tela de Usuários.
 def _papel(dados):
-    """Papel de QUEM porta o token (o ator). Vem só do JWT (email + user_metadata.role)."""
+    """Papel de QUEM porta o token (o ator). Vem do JWT: email (super) + app_metadata.role (admin).
+    SEC-001: o role fica em app_metadata (só a service_role escreve) — NUNCA em user_metadata, que o
+    próprio usuário edita via updateUser() e permitiria autopromoção a admin."""
     email = (dados.get("email") or "").strip().lower()
     if bool(ADMIN_EMAIL) and email == ADMIN_EMAIL:
         return "super"
-    role = ((dados.get("user_metadata") or {}).get("role") or "").strip().lower()
+    role = ((dados.get("app_metadata") or {}).get("role") or "").strip().lower()
     return "admin" if role == "admin" else "user"
 
 def _papel_usuario(u):
-    """Papel de um usuário-ALVO (objeto vindo do Supabase)."""
+    """Papel de um usuário-ALVO (objeto vindo do Supabase). SEC-001: role vem de app_metadata."""
     email = (u.get("email") or "").strip().lower()
     if bool(ADMIN_EMAIL) and email == ADMIN_EMAIL:
         return "super"
-    role = ((u.get("user_metadata") or {}).get("role") or "").strip().lower()
+    role = ((u.get("app_metadata") or {}).get("role") or "").strip().lower()
     return "admin" if role == "admin" else "user"
 
 def _eh_admin(dados):
@@ -2899,15 +2901,17 @@ def criar_usuario(item: NovoUsuario, dados: dict = Depends(exigir_admin)):
     # M11.2: só o super admin pode criar OUTRO admin (evita escalada por um admin comum).
     if papel_novo == "admin" and not _eh_super(dados):
         raise HTTPException(status_code=403, detail="Só o super admin pode criar outro admin.")
-    meta = {"precisa_trocar_senha": True}   # força trocar no 1º login
-    if papel_novo == "admin":
-        meta["role"] = "admin"
-    novo = _supabase_admin("POST", "/auth/v1/admin/users", {
+    meta = {"precisa_trocar_senha": True}   # força trocar no 1º login (user_metadata; não é sensível)
+    corpo = {
         "email": email,
         "password": item.senha,
         "email_confirm": True,   # já confirmado: entra direto com a senha temporária
         "user_metadata": meta,
-    })
+    }
+    # SEC-001: o papel de admin vai em app_metadata (só a service_role escreve; o usuário não edita).
+    if papel_novo == "admin":
+        corpo["app_metadata"] = {"role": "admin"}
+    novo = _supabase_admin("POST", "/auth/v1/admin/users", corpo)
     return {"status": "usuário criado", "usuario": _fmt_usuario(novo)}
 
 @app.post("/admin/usuarios/{uid}/resetar-senha")
@@ -2964,9 +2968,15 @@ def promover_admin(uid: str, dados: dict = Depends(exigir_super)):
     alvo = _buscar_usuario(uid)
     if _papel_usuario(alvo) == "super":
         raise HTTPException(status_code=400, detail="O super admin já tem todo o acesso.")
-    meta = dict(alvo.get("user_metadata") or {})
-    meta["role"] = "admin"
-    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"user_metadata": meta})
+    # SEC-001: grava o papel em app_metadata (não editável pelo usuário); preserva o resto (provider etc.)
+    app_md = dict(alvo.get("app_metadata") or {})
+    app_md["role"] = "admin"
+    body = {"app_metadata": app_md}
+    # limpa um eventual role legado em user_metadata (não confiável), pra não sobrar rastro
+    um = dict(alvo.get("user_metadata") or {})
+    if um.pop("role", None) is not None:
+        body["user_metadata"] = um
+    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", body)
     return {"status": "usuário promovido a admin"}
 
 @app.post("/admin/usuarios/{uid}/rebaixar")
@@ -2975,9 +2985,12 @@ def rebaixar_admin(uid: str, dados: dict = Depends(exigir_super)):
     alvo = _buscar_usuario(uid)
     if _papel_usuario(alvo) == "super":
         raise HTTPException(status_code=400, detail="O super admin não pode ser rebaixado.")
-    meta = dict(alvo.get("user_metadata") or {})
-    meta.pop("role", None)
-    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"user_metadata": meta})
+    # SEC-001: remove o papel de app_metadata (e limpa role legado em user_metadata, por garantia)
+    app_md = dict(alvo.get("app_metadata") or {})
+    app_md.pop("role", None)
+    um = dict(alvo.get("user_metadata") or {})
+    um.pop("role", None)
+    _supabase_admin("PUT", f"/auth/v1/admin/users/{uid}", {"app_metadata": app_md, "user_metadata": um})
     return {"status": "admin rebaixado a usuário padrão"}
 
 
