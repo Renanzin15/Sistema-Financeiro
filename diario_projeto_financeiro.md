@@ -2436,3 +2436,13 @@ admin (autopromoção fechada); role em `app_metadata` → admin ok; super por e
 **re-promovido** (super → Usuários → Promover, agora grava no lugar certo). Pendências da auditoria (P2/P3):
 travar versões + `pip-audit`, rate limiting, teto em `/importar/analisar`, race no saldo, CSP, Swagger off,
 allowlist de `tipo`, etc. Ver a nota de auditoria.
+
+## Etapa 51 — Lateral rolável: menu não fica mais cortado fora da tela (02/10/2026)
+
+O Renan relatou que no zoom 100% "fica fora da tela". Reproduzi/medi no navegador (servidor estático local,
+viewport 1024x720): **não era overflow horizontal** (zero de 1024 a 1366) — era **vertical na barra lateral**.
+Depois do menu em categorias (Etapa 49) ele ficou mais alto (954px) que a tela (720px), e `.lateral` tinha
+`overflow-y: visible`, então "Importar"/"Sair" ficavam ~234px abaixo, inalcançáveis. Correção (só `styles.css`,
+seletor `.lateral`): `overflow-y: auto; overflow-x: hidden` + barra de rolagem fina/discreta — o menu rola por
+dentro quando é mais alto que a tela, adaptando a qualquer altura/zoom; "Sair" sempre acessível. Verificado:
+menu rolável, Sair dentro da viewport após rolar, sem overflow horizontal. Mudança de front; sem teste Python.

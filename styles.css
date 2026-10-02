@@ -48,7 +48,13 @@
     background: linear-gradient(180deg, rgba(26,20,48,.55), rgba(16,12,30,.35));
     border-right: 1px solid var(--borda); backdrop-filter: blur(8px);
     position: sticky; top: 0; height: 100vh;
+    /* quando o menu é mais alto que a tela (zoom 100%, telas baixas), rola por dentro —
+       assim "Importar"/"Sair" nunca ficam cortados fora da tela. Adapta a qualquer altura/zoom. */
+    overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent;
   }
+  .lateral::-webkit-scrollbar { width: 7px; }
+  .lateral::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
+  .lateral::-webkit-scrollbar-track { background: transparent; }
   .marca {
     font-size: 15px; font-weight: 700; letter-spacing: 0.02em; color: var(--texto);
     padding: 2px 12px 22px; display: flex; align-items: center; gap: 10px;
