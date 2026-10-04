@@ -1196,17 +1196,35 @@ async function renderFaturaPainel(id) {
   const conta = CONTAS.find(c => c.id === id);
   const itens = await pedir(`/contas/${id}/itens`);
   let html = "";
+  // aviso: pagamento "avulso" (feito na fatura inteira) que não está ligado a nenhum item
+  const somaPagos = itens.filter(it => it.paga).reduce((s, it) => s + it.valor_reais, 0);
+  const solto = ((conta && conta.pago_reais) ? conta.pago_reais : 0) - somaPagos;
+  if (solto > 0.005) {
+    html += `<div class="sub" style="background:rgba(230,184,0,.08);border:1px solid var(--amarelo);color:var(--amarelo);border-radius:8px;padding:8px 10px;margin-bottom:10px">⚠️ Há ${reais(solto)} pago nesta fatura que não está ligado a nenhum item (pagamento avulso). Pagar itens não cobra em dobro — fica limitado ao que ainda falta. Para ligar esse valor a um item, use "Desfazer" no topo da fatura e pague pelo item.</div>`;
+  }
   if (itens.length === 0) {
     html += '<div class="sub" style="padding:6px 0">Nenhum gasto lançado nesta fatura ainda.</div>';
   } else {
-    html += itens.map(it => `
+    html += itens.map(it => {
+      const pago = it.paga;
+      const nome = `<div class="nome" style="font-size:13px${pago ? ';text-decoration:line-through;opacity:.6' : ''}">${it.descricao}</div>`;
+      let acoes = "";
+      if (pago) {
+        acoes += `<span class="fatura-tag paga" title="Item pago">✓ pago</span>`;
+        if (conta && !conta.paga) acoes += `<button class="perigo" style="font-size:12px;padding:5px 9px" title="Desfazer o pagamento deste item" onclick="desfazerItemFatura(${id}, ${it.id})">Desfazer</button>`;
+      } else if (conta && !conta.paga) {
+        acoes += `<button class="acao pequeno" title="Pagar este item" onclick="pagarItemFatura(${id}, ${it.id}, ${it.valor_reais})">Pagar</button>`;
+        acoes += `<button class="perigo ib" title="Apagar" onclick="apagarItemFatura(${id}, ${it.id})">${ico('apagar')}</button>`;
+      }
+      return `
       <div class="item" style="padding:8px 0">
-        <div><div class="nome" style="font-size:13px">${it.descricao}</div><div class="sub">${it.data || "sem data"}</div></div>
+        <div>${nome}<div class="sub">${it.data || "sem data"}</div></div>
         <div style="display:flex;align-items:center;gap:10px">
-          <span class="valor menos" style="font-size:14px">${reais(it.valor_reais)}</span>
-          ${conta && !conta.paga ? `<button class="perigo ib" title="Apagar" onclick="apagarItemFatura(${id}, ${it.id})">${ico('apagar')}</button>` : ""}
+          <span class="valor menos" style="font-size:14px${pago ? ';opacity:.6' : ''}">${reais(it.valor_reais)}</span>
+          ${acoes}
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
   }
   html += `<div style="display:flex;justify-content:space-between;padding:10px 0 4px;border-top:1px solid var(--borda);margin-top:6px;font-weight:600">
     <span>Total da fatura</span><span class="valor menos">${reais(conta ? conta.valor_reais : 0)}</span></div>`;
@@ -2854,6 +2872,32 @@ async function apagarLancamento(id) {
 async function desfazerPagamento(id) {
   try { await pedir(`/contas/${id}/desfazer-pagamento`, { method: "POST" }); aviso("Pagamento desfeito.", "ok"); carregarTudo(); }
   catch (e) { aviso(e.message, "erro"); }
+}
+
+// paga UM item da fatura: pergunta a caixinha e tira o valor do item dela
+async function pagarItemFatura(contaId, itemId, valorReais) {
+  if (!CAIXINHAS.length) return aviso("Crie uma caixinha para pagar.", "erro");
+  const r = await abrirFormModal({
+    titulo: `Pagar item · ${reais(valorReais)}`,
+    campos: [{ id: "caixinha", label: "Pagar com qual caixinha?", tipo: "select", opcoes: CAIXINHAS.map(c => ({ valor: c.id, texto: c.nome })) }],
+    rotulo: "Pagar"
+  });
+  if (!r) return;
+  try {
+    await pedir(`/contas/${contaId}/itens/${itemId}/pagar`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ caixinha_id: parseInt(r.caixinha) }) });
+    aviso("Item pago.", "ok");
+    await recarregarMantendoFatura(contaId);
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+// desfaz o pagamento de UM item (devolve o dinheiro à caixinha)
+async function desfazerItemFatura(contaId, itemId) {
+  try {
+    await pedir(`/contas/${contaId}/itens/${itemId}/desfazer`, { method: "POST" });
+    aviso("Pagamento do item desfeito.", "ok");
+    await recarregarMantendoFatura(contaId);
+  } catch (e) { aviso(e.message, "erro"); }
 }
 
 async function apagarConta(id) {

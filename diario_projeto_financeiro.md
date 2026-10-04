@@ -2446,3 +2446,29 @@ Depois do menu em categorias (Etapa 49) ele ficou mais alto (954px) que a tela (
 seletor `.lateral`): `overflow-y: auto; overflow-x: hidden` + barra de rolagem fina/discreta — o menu rola por
 dentro quando é mais alto que a tela, adaptando a qualquer altura/zoom; "Sair" sempre acessível. Verificado:
 menu rolável, Sair dentro da viewport após rolar, sem overflow horizontal. Mudança de front; sem teste Python.
+
+## Etapa 52 — Pagar item a item dentro da fatura do cartão (03/10/2026)
+
+Pedido do Renan: botão pra pagar cada item da fatura (antes só dava pra pagar a fatura inteira). Ele escolheu
+o modelo **completo** (estado de pago por item) e **perguntar a caixinha na hora**, mais um **aviso** (não bloqueia)
+quando há pagamento "avulso" não ligado a itens.
+
+**Banco:** `fatura_itens` ganhou `paga` + `caixinha_paga_id`; `lancamentos` ganhou `fatura_item_id` (liga o
+pagamento ao item). Migração no SQLite (`migrar`) e no Postgres (`DDL_POSTGRES`).
+
+**Backend:** `GET /contas/{id}/itens` passou a devolver `paga`. Duas rotas novas (reusam a lógica de pagamento
+que já existe — sai de caixinha, trava de saldo): `POST /contas/{id}/itens/{item}/pagar` (tira o valor do item da
+caixinha, marca item pago, liga o pagamento ao item; quita a fatura quando a soma paga atinge o total; **não deixa
+pagar além do que falta** — guarda contra pagamento duplo quando há avulso) e `.../desfazer` (apaga o lançamento do
+item, devolve o dinheiro, desmarca, reabre a fatura). **Bug corrigido junto:** o `desfazer-pagamento` da fatura
+inteira agora também zera o `paga` dos itens (senão ficavam "pagos" sem pagamento).
+
+**Front:** cada item mostra **Pagar** (abre escolha de caixinha via `abrirFormModal`) ou, se pago, **✓ pago**
+(riscado) + **Desfazer**; banner de aviso quando há pagamento avulso (`conta.pago_reais` − soma dos itens pagos).
+Reaproveita `recarregarMantendoFatura`.
+
+**Atrelar o R$ 490 da Faculdade (caso do Renan):** não precisa mexer no banco — depois do deploy, "Desfazer" no
+topo da fatura e "Pagar" no item Faculdade com a caixinha certa (mesmo saldo final, agora ligado ao item).
+
+**Testado local:** `test_pagar_item_fatura.py` **15/15** (pagar/marca/saldo sai, já-pago→400, desfazer devolve,
+quita com todos, caixinha vazia→400, guarda de overpay com avulso). Regressão: hierarquia 29, MFA 16, SEC-001 10.

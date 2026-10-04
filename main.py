@@ -125,6 +125,11 @@ DDL_POSTGRES = [
     "ALTER TABLE contas ADD COLUMN IF NOT EXISTS competencia TEXT",
     "ALTER TABLE recorrentes ADD COLUMN IF NOT EXISTS cartao_id BIGINT",
     "ALTER TABLE licencas ADD COLUMN IF NOT EXISTS cartao_id BIGINT",
+    # pagar item a item dentro da fatura: estado do item (pago/não) + de qual caixinha saiu,
+    # e vínculo do pagamento (lançamento) ao item que ele quitou (pra desfazer item por item).
+    "ALTER TABLE fatura_itens ADD COLUMN IF NOT EXISTS paga INTEGER DEFAULT 0",
+    "ALTER TABLE fatura_itens ADD COLUMN IF NOT EXISTS caixinha_paga_id BIGINT",
+    "ALTER TABLE lancamentos ADD COLUMN IF NOT EXISTS fatura_item_id BIGINT",
     "CREATE INDEX IF NOT EXISTS bancos_user_idx ON bancos(user_id)",
     "CREATE INDEX IF NOT EXISTS caixinhas_user_idx ON caixinhas(user_id)",
     "CREATE INDEX IF NOT EXISTS lancamentos_user_idx ON lancamentos(user_id)",
@@ -404,6 +409,14 @@ def migrar():
     colunas_er = [c[1] for c in con.execute("PRAGMA table_info(entradas_recorrentes)").fetchall()]
     if "criada_em" not in colunas_er:
         con.execute("ALTER TABLE entradas_recorrentes ADD COLUMN criada_em TEXT")
+    # pagar item a item dentro da fatura: estado do item + caixinha de origem, e vínculo do pagamento ao item
+    colunas_fi = [c[1] for c in con.execute("PRAGMA table_info(fatura_itens)").fetchall()]
+    if "paga" not in colunas_fi:
+        con.execute("ALTER TABLE fatura_itens ADD COLUMN paga INTEGER DEFAULT 0")
+    if "caixinha_paga_id" not in colunas_fi:
+        con.execute("ALTER TABLE fatura_itens ADD COLUMN caixinha_paga_id INTEGER")
+    if "fatura_item_id" not in [c[1] for c in con.execute("PRAGMA table_info(lancamentos)").fetchall()]:
+        con.execute("ALTER TABLE lancamentos ADD COLUMN fatura_item_id INTEGER")
     # multi-usuário: user_id em todas as tabelas de dados (SQLite local)
     for _t in ("bancos", "caixinhas", "lancamentos", "contas", "recorrentes", "fatura_itens", "categorias", "regras_salario"):
         _cols = [c[1] for c in con.execute(f"PRAGMA table_info({_t})").fetchall()]
@@ -1422,6 +1435,9 @@ class PagamentoParcial(BaseModel):
     caixinha_id: int
     valor_centavos: int   # quanto pagar agora (parte do restante da conta)
 
+class PagamentoItem(BaseModel):
+    caixinha_id: int   # de qual caixinha sai o pagamento deste item da fatura
+
 class NovaRecorrente(BaseModel):
     nome: str
     valor_centavos: int
@@ -1987,6 +2003,8 @@ def desfazer_pagamento(conta_id: int, user_id: str = Depends(exigir_login)):
 
     # marca a conta como não paga de novo
     con.execute("UPDATE contas SET paga=0, caixinha_paga_id=NULL WHERE id=? AND user_id=?", (conta_id, user_id))
+    # os pagamentos por item também foram desfeitos acima — desmarca todos os itens da fatura
+    con.execute("UPDATE fatura_itens SET paga=0, caixinha_paga_id=NULL WHERE conta_id=? AND user_id=?", (conta_id, user_id))
     con.commit()
     con.close()
     return {"status": "pagamento desfeito"}
@@ -2062,12 +2080,12 @@ def arquivar_antigas(user_id: str = Depends(exigir_login)):
 def listar_itens_fatura(conta_id: int, user_id: str = Depends(exigir_login)):
     con = conectar()
     linhas = con.execute(
-        "SELECT id, descricao, valor_centavos, data FROM fatura_itens WHERE conta_id=? AND user_id=? ORDER BY id",
+        "SELECT id, descricao, valor_centavos, data, COALESCE(paga,0) FROM fatura_itens WHERE conta_id=? AND user_id=? ORDER BY id",
         (conta_id, user_id)
     ).fetchall()
     con.close()
     return [
-        {"id": l[0], "descricao": l[1], "valor_reais": l[2] / 100, "data": l[3]}
+        {"id": l[0], "descricao": l[1], "valor_reais": l[2] / 100, "data": l[3], "paga": bool(l[4])}
         for l in linhas
     ]
 
@@ -2128,6 +2146,73 @@ def apagar_item_fatura(conta_id: int, item_id: int, user_id: str = Depends(exigi
     con.commit()
     con.close()
     return {"status": "item apagado"}
+
+@app.post("/contas/{conta_id}/itens/{item_id}/pagar")
+def pagar_item_fatura(conta_id: int, item_id: int, item: PagamentoItem, user_id: str = Depends(exigir_login)):
+    """Paga UM item da fatura: tira o valor do item de uma caixinha, marca o item como pago e
+    registra o pagamento ligado ao item (fatura_item_id) pra poder desfazer item a item. A fatura
+    quita sozinha quando todos os itens estão pagos. Não deixa pagar além do que ainda falta."""
+    con = conectar()
+    conta = con.execute(
+        "SELECT id, valor_centavos, paga, tipo_conta, nome FROM contas WHERE id=? AND user_id=?", (conta_id, user_id)
+    ).fetchone()
+    if conta is None:
+        con.close(); raise HTTPException(status_code=404, detail="Essa conta não existe.")
+    if (conta[3] or "simples") != "fatura":
+        con.close(); raise HTTPException(status_code=400, detail="Só faturas têm itens para pagar.")
+    if conta[2] == 1:
+        con.close(); raise HTTPException(status_code=400, detail="Essa fatura já está paga.")
+    it = con.execute(
+        "SELECT id, descricao, valor_centavos, COALESCE(paga,0) FROM fatura_itens WHERE id=? AND conta_id=? AND user_id=?",
+        (item_id, conta_id, user_id)
+    ).fetchone()
+    if it is None:
+        con.close(); raise HTTPException(status_code=404, detail="Esse item não existe nessa fatura.")
+    if it[3] == 1:
+        con.close(); raise HTTPException(status_code=400, detail="Esse item já está pago.")
+    valor = it[2]
+    if valor <= 0:
+        con.close(); raise HTTPException(status_code=400, detail="O valor do item precisa ser maior que zero.")
+    total = total_conta(con, user_id, conta_id, "fatura", conta[1])
+    restante = total - total_pago_conta(con, user_id, conta_id)
+    if valor > restante:
+        con.close()
+        raise HTTPException(status_code=400, detail=f"Essa fatura só tem R$ {restante/100:.2f} a pagar (há pagamento avulso já feito). Desfaça o pagamento avulso antes de pagar este item.")
+    if con.execute("SELECT id FROM caixinhas WHERE id=? AND user_id=?", (item.caixinha_id, user_id)).fetchone() is None:
+        con.close(); raise HTTPException(status_code=404, detail="Caixinha não encontrada.")
+    if saldo_da_caixinha(con, user_id, item.caixinha_id) < valor:
+        con.close(); raise HTTPException(status_code=400, detail="Saldo insuficiente nessa caixinha.")
+    con.execute(
+        "INSERT INTO lancamentos (tipo, valor_centavos, descricao, caixinha_id, data, conta_paga_id, fatura_item_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("pagamento", valor, f"Pagamento: {conta[4]} — {it[1]}", item.caixinha_id, data_hoje(), conta_id, item_id, user_id)
+    )
+    con.execute("UPDATE fatura_itens SET paga=1, caixinha_paga_id=? WHERE id=? AND user_id=?", (item.caixinha_id, item_id, user_id))
+    quitou = total > 0 and total_pago_conta(con, user_id, conta_id) >= total
+    if quitou:
+        con.execute("UPDATE contas SET paga=1, caixinha_paga_id=? WHERE id=? AND user_id=?", (item.caixinha_id, conta_id, user_id))
+    con.commit(); con.close()
+    return {"status": "item pago", "fatura_quitada": quitou}
+
+@app.post("/contas/{conta_id}/itens/{item_id}/desfazer")
+def desfazer_item_fatura(conta_id: int, item_id: int, user_id: str = Depends(exigir_login)):
+    """Desfaz o pagamento de UM item: apaga o lançamento ligado ao item (devolve o dinheiro à
+    caixinha de onde saiu), desmarca o item e reabre a fatura se ela estava quitada."""
+    con = conectar()
+    it = con.execute(
+        "SELECT id, COALESCE(paga,0) FROM fatura_itens WHERE id=? AND conta_id=? AND user_id=?", (item_id, conta_id, user_id)
+    ).fetchone()
+    if it is None:
+        con.close(); raise HTTPException(status_code=404, detail="Esse item não existe nessa fatura.")
+    if it[1] != 1:
+        con.close(); raise HTTPException(status_code=400, detail="Esse item não está pago.")
+    con.execute(
+        "DELETE FROM lancamentos WHERE tipo='pagamento' AND fatura_item_id=? AND conta_paga_id=? AND user_id=?",
+        (item_id, conta_id, user_id)
+    )
+    con.execute("UPDATE fatura_itens SET paga=0, caixinha_paga_id=NULL WHERE id=? AND user_id=?", (item_id, user_id))
+    con.execute("UPDATE contas SET paga=0, caixinha_paga_id=NULL WHERE id=? AND user_id=?", (conta_id, user_id))
+    con.commit(); con.close()
+    return {"status": "pagamento do item desfeito"}
 
 @app.post("/contas/{conta_id}/mover-fatura")
 def mover_conta_para_fatura(conta_id: int, item: VincularFatura, user_id: str = Depends(exigir_login)):
